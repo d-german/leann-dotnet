@@ -209,7 +209,7 @@ dotnet publish src/LeannMcp -r osx-arm64 --self-contained -c Release -o publish/
 
 # Install as dotnet tool (framework-dependent)
 dotnet pack src/LeannMcp -c Release
-dotnet tool install --global --add-source src/LeannMcp/bin/Release HylandFoundation.Leann.Mcp
+dotnet tool install --global --add-source src/LeannMcp/bin/Release LeannMcp
 ```
 
 ## Troubleshooting

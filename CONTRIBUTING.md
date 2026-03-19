@@ -3,7 +3,7 @@
 ## Dev Setup
 
 ```bash
-git clone https://github.com/HylandFoundation/leann-dotnet.git
+git clone https://github.com/d-german/leann-dotnet.git
 cd leann-dotnet
 dotnet restore
 dotnet build
@@ -64,27 +64,9 @@ Releases are fully automated via GitHub Actions. To publish a new version:
    - Build self-contained binaries (win-x64 + osx-arm64)
    - Create a GitHub Release with both binaries as download assets
    - Pack a NuGet dotnet tool package
-   - Push the package to ProGet
 
 4. **Verify** at:
-   - https://github.com/HylandFoundation/leann-dotnet/releases
-   - https://proget.onbase.net/feeds/NuGet (search for HylandFoundation.Leann.Mcp)
-
-## ProGet Setup (Maintainers)
-
-The release workflow needs a `PROGET_API_KEY` GitHub secret to push NuGet packages.
-
-1. Generate an API key at https://proget.onbase.net (your profile > API Keys)
-2. Go to repo Settings > Secrets and variables > Actions
-3. Add secret: `PROGET_API_KEY` = your key
-
-Manual push (if needed):
-```bash
-dotnet pack src/LeannMcp/LeannMcp.csproj -c Release -o nupkg
-dotnet nuget push nupkg/*.nupkg \
-  --source https://proget.onbase.net/nuget/NuGet/v3/index.json \
-  --api-key YOUR_KEY
-```
+   - https://github.com/d-german/leann-dotnet/releases
 
 ## Adding New MCP Tools
 
