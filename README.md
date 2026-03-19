@@ -31,17 +31,15 @@ cd leann-dotnet
 dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/win-x64
 ```
 
-### 2. Get the ONNX Model
+### 2. Set Up the Model
 
-You need the contriever ONNX model. Export it once (requires Python):
+The contriever ONNX model is included in the repo (via Git LFS). Copy it to your data root:
 
 ```bash
-cd scripts
-pip install torch transformers onnxruntime onnx numpy
-python export-onnx-simple.py ./contriever-onnx
+cp -r models/contriever-onnx <data-root>/.leann/models/contriever-onnx
 ```
 
-Place the model at `<data-root>/.leann/models/contriever-onnx/` (must contain `model.onnx` and `vocab.txt`).
+> **Note:** If you cloned without LFS, run `git lfs pull` first to download `model.onnx` (418 MB).
 
 ### 3. Index Your Code
 
