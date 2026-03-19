@@ -11,6 +11,15 @@ A native .NET 10 MCP server for semantic code search. Chunks source repositories
 > codebases to emails to browser history — all locally with zero cloud costs. This .NET port focuses on the
 > semantic code search and MCP server pipeline, rebuilt natively for Windows/macOS with GPU acceleration via
 > ONNX Runtime.
+### Why a .NET port?
+
+The original LEANN requires Python, WSL (on Windows), PyTorch, and several other dependencies — a
+significant setup burden, especially on corporate machines with limited install permissions. This port
+is a single self-contained executable with **zero external dependencies**. No Python, no WSL, no pip,
+no virtual environments. Just download and run.
+
+It works natively on **Windows** (DirectML GPU acceleration) and **macOS** (CoreML on Apple Silicon),
+with automatic CPU fallback on any platform.
 ## How It Works
 
 ```
