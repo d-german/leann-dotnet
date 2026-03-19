@@ -37,6 +37,7 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) (for building from source)
 - GPU recommended but not required (falls back to CPU)
+- **macOS**: Apple Silicon (M1/M2/M3/M4) required — Intel Macs are not supported
 
 ### 1. Build
 
