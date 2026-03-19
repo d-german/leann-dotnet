@@ -5,6 +5,12 @@
 
 A native .NET 10 MCP server for semantic code search. Chunks source repositories, computes embeddings via ONNX (GPU-accelerated), and serves results over the [Model Context Protocol](https://modelcontextprotocol.io/).
 
+> **Ported from [LEANN](https://github.com/yichuan-w/LEANN)** by Yichuan Wang — an innovative Python-based vector
+> database and MCP server for personal AI. The original project pioneered graph-based selective recomputation for
+> ultra-compact vector indexes (97% less storage than traditional solutions) and supports indexing everything from
+> codebases to emails to browser history — all locally with zero cloud costs. This .NET port focuses on the
+> semantic code search and MCP server pipeline, rebuilt natively for Windows/macOS with GPU acceleration via
+> ONNX Runtime.
 ## How It Works
 
 ```
