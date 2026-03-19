@@ -42,6 +42,9 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 ### 1. Build
 
 ```bash
+# Install Git LFS first (one-time setup) — needed for the 418 MB ONNX model
+git lfs install
+
 git clone https://github.com/d-german/leann-dotnet.git
 cd leann-dotnet
 dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/win-x64
@@ -55,7 +58,7 @@ The contriever ONNX model is included in the repo (via Git LFS). Copy it to your
 cp -r models/contriever-onnx <data-root>/.leann/models/contriever-onnx
 ```
 
-> **Note:** If you cloned without LFS, run `git lfs pull` first to download `model.onnx` (418 MB).
+> **Forgot `git lfs install`?** Run `git lfs pull` inside the repo to download `model.onnx` (418 MB).
 
 ### 3. Index Your Code
 
