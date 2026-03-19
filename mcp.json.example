@@ -1,0 +1,23 @@
+// Option A: dotnet tool (requires .NET 10 SDK installed)
+{
+  "servers": {
+    "leann-server": {
+      "type": "stdio",
+      "command": "leann-mcp",
+      "args": [],
+      "cwd": "Z:\\"
+    }
+  }
+}
+
+// Option B: Self-contained binary (no prerequisites)
+// {
+//   "servers": {
+//     "leann-server": {
+//       "type": "stdio",
+//       "command": "Z:\\.leann\\bin\\leann-dotnet.exe",
+//       "args": [],
+//       "cwd": "Z:\\"
+//     }
+//   }
+// }

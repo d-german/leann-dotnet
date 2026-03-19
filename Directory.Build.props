@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Authors>Hyland Foundation</Authors>
+    <Company>Hyland Software, Inc.</Company>
+    <Product>LEANN MCP Server</Product>
+    <Copyright>Copyright (c) 2026 Hyland Software, Inc.</Copyright>
+    <RepositoryUrl>https://github.com/HylandFoundation/leann-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>leann-dotnet</AssemblyName>
+
+    <!-- NuGet / dotnet tool packaging -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>leann-mcp</ToolCommandName>
+    <PackageId>HylandFoundation.Leann.Mcp</PackageId>
+    <Description>LEANN MCP Server — semantic code search powered by ONNX Runtime. Provides MCP tools for RAG-based code retrieval with GPU-accelerated embedding (DirectML on Windows, CoreML on macOS).</Description>
+    <PackageTags>mcp;semantic-search;onnx;rag;code-search;directml;coreml</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/HylandFoundation/leann-dotnet</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Self-contained publish settings (only affect `dotnet publish`, not `dotnet pack`) -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
+
+    <!-- Windows: DirectML (GPU via DirectX) -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.3"
+                      Condition="'$(RuntimeIdentifier)' == 'win-x64'" />
+
+    <!-- macOS: Base OnnxRuntime (includes CoreML EP for Apple Silicon GPU/Neural Engine) -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3"
+                      Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
+
+    <!-- Fallback: base OnnxRuntime for dotnet pack (no RID) and other platforms -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3"
+                      Condition="'$(RuntimeIdentifier)' != 'win-x64' AND '$(RuntimeIdentifier)' != 'osx-arm64'" />
+  </ItemGroup>
+
+</Project>
