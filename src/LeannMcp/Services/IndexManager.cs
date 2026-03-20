@@ -21,11 +21,13 @@ public sealed class IndexManager
     public string IndexesDir => _indexesDir;
     private readonly int _dimensions;
 
-    public IndexManager(IEmbeddingService embeddingService, ILogger<IndexManager> logger)
+    public IndexManager(IEmbeddingService embeddingService, ILogger<IndexManager> logger, string? indexesDir = null)
     {
         _embeddingService = embeddingService;
         _logger = logger;
-        _indexesDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "indexes");
+        _indexesDir = indexesDir ?? Path.Combine(
+            Environment.GetEnvironmentVariable("LEANN_DATA_ROOT") ?? Directory.GetCurrentDirectory(),
+            ".leann", "indexes");
         _dimensions = 768;
     }
 

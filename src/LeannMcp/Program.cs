@@ -66,11 +66,14 @@ static async Task RunMcpServer(string[] args)
         options.LogToStandardErrorThreshold = LogLevel.Trace;
     });
 
-    var modelsDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "models", "contriever-onnx");
+    var dataRoot = GetDataRoot();
+    var modelsDir = Path.Combine(dataRoot, ".leann", "models", "contriever-onnx");
+    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
         new OnnxEmbeddingService(modelsDir, sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
-    builder.Services.AddSingleton<IndexManager>();
+    builder.Services.AddSingleton(sp =>
+        new IndexManager(sp.GetRequiredService<IEmbeddingService>(), sp.GetRequiredService<ILogger<IndexManager>>(), indexesDir));
 
     builder.Services
         .AddMcpServer()
@@ -85,10 +88,11 @@ static async Task RunMcpServer(string[] args)
 static async Task RunWatch(string[] args)
 {
     var intervalSeconds = ParseIntArg(args, "--interval", 300);
+    var dataRoot = GetDataRoot();
     var configPath = ParseStringArg(args, "--repos-config")
-                     ?? Path.Combine(Directory.GetCurrentDirectory(), ".leann", "repos.json");
-    var indexesDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "indexes");
-    var modelsDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "models", "contriever-onnx");
+                     ?? Path.Combine(dataRoot, ".leann", "repos.json");
+    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
+    var modelsDir = Path.Combine(dataRoot, ".leann", "models", "contriever-onnx");
 
     var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
     builder.Logging.ClearProviders();
@@ -120,7 +124,7 @@ static int RunBuildPassages(string[] args)
 {
     var force = args.Contains("--force");
     var indexName = ParseStringArg(args, "--index-name")
-                    ?? Path.GetFileName(Directory.GetCurrentDirectory())
+                    ?? Path.GetFileName(GetDataRoot())
                     ?? "default";
 
     var docPaths = ParseListArg(args, "--docs");
@@ -139,7 +143,8 @@ static int RunBuildPassages(string[] args)
         IncludeHidden = args.Contains("--include-hidden"),
     };
 
-    var indexesDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "indexes");
+    var dataRoot = GetDataRoot();
+    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
     var indexDir = Path.Combine(indexesDir, indexName);
 
     var passagesPath = Path.Combine(indexDir, "documents.leann.passages.jsonl");
@@ -225,8 +230,9 @@ static async Task<int> RunBuildIndexes(string[] args)
         options.LogToStandardErrorThreshold = LogLevel.Trace;
     });
 
-    var modelsDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "models", "contriever-onnx");
-    var indexesDir = Path.Combine(Directory.GetCurrentDirectory(), ".leann", "indexes");
+    var dataRoot = GetDataRoot();
+    var modelsDir = Path.Combine(dataRoot, ".leann", "models", "contriever-onnx");
+    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
         new OnnxEmbeddingService(modelsDir, sp.GetRequiredService<ILogger<OnnxEmbeddingService>>(), maxTokens));
@@ -305,6 +311,10 @@ static List<string> ParseListArg(string[] args, string flag)
 
     return result;
 }
+
+static string GetDataRoot() =>
+    Environment.GetEnvironmentVariable("LEANN_DATA_ROOT")
+    ?? Directory.GetCurrentDirectory();
 
 static void PrintUsage()
 {
