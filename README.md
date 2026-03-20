@@ -166,6 +166,24 @@ From your MCP client, use these tools:
 | `--interval N` | Check interval in seconds | 300 |
 | `--repos-config PATH` | Path to repos.json config | `.leann/repos.json` |
 
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` | Current working directory |
+| `LEANN_MODEL_DIR` | Path to the contriever-onnx model directory | `~/.leann/models/contriever-onnx` |
+| `LEANN_FORCE_CPU` | Set to `1` or `true` to disable GPU acceleration | (GPU enabled) |
+
+### GPU Acceleration
+
+| Platform | Provider | Automatic |
+|----------|----------|-----------|
+| **Windows** | DirectML (any GPU) | ✅ Yes |
+| **macOS** | CoreML (Apple Silicon GPU + Neural Engine) | ✅ Yes |
+| **Linux** | CPU only | — |
+
+GPU is used for both indexing and search query embedding. For MCP server use (search only),
+you can set `LEANN_FORCE_CPU=1` to free your GPU — single query embedding is fast on CPU.
 ## Examples
 
 ```bash
