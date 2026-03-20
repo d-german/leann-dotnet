@@ -67,7 +67,7 @@ static async Task RunMcpServer(string[] args)
     });
 
     var dataRoot = GetDataRoot();
-    var modelsDir = Path.Combine(dataRoot, ".leann", "models", "contriever-onnx");
+    var modelsDir = GetModelDir(dataRoot);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
@@ -92,7 +92,7 @@ static async Task RunWatch(string[] args)
     var configPath = ParseStringArg(args, "--repos-config")
                      ?? Path.Combine(dataRoot, ".leann", "repos.json");
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
-    var modelsDir = Path.Combine(dataRoot, ".leann", "models", "contriever-onnx");
+    var modelsDir = GetModelDir(dataRoot);
 
     var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
     builder.Logging.ClearProviders();
@@ -231,7 +231,7 @@ static async Task<int> RunBuildIndexes(string[] args)
     });
 
     var dataRoot = GetDataRoot();
-    var modelsDir = Path.Combine(dataRoot, ".leann", "models", "contriever-onnx");
+    var modelsDir = GetModelDir(dataRoot);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
@@ -315,6 +315,10 @@ static List<string> ParseListArg(string[] args, string flag)
 static string GetDataRoot() =>
     Environment.GetEnvironmentVariable("LEANN_DATA_ROOT")
     ?? Directory.GetCurrentDirectory();
+
+static string GetModelDir(string dataRoot) =>
+    Environment.GetEnvironmentVariable("LEANN_MODEL_DIR")
+    ?? GetModelDir(dataRoot);
 
 static void PrintUsage()
 {
