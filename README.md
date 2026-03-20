@@ -35,32 +35,30 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 
 ### Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) (for building from source)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - GPU recommended but not required (falls back to CPU)
 - **macOS**: Apple Silicon (M1/M2/M3/M4) required — Intel Macs are not supported
 
-### 1. Build
+### Option A: Install from NuGet (recommended)
 
 ```bash
-# Install Git LFS first (one-time setup) — needed for the 418 MB ONNX model
-git lfs install
+dotnet tool install -g LeannMcp
+leann-mcp --setup    # downloads the 418 MB ONNX model to ~/.leann/models/
+```
 
+### Option B: Build from source
+
+```bash
+# Git LFS required — the repo includes the 418 MB ONNX model
+git lfs install
 git clone https://github.com/d-german/leann-dotnet.git
 cd leann-dotnet
 dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/win-x64
 ```
 
-### 2. Set Up the Model
+> **Forgot `git lfs install`?** Run `git lfs pull` to download `model.onnx`.
 
-The contriever ONNX model is included in the repo (via Git LFS). Copy it to your data root:
-
-```bash
-cp -r models/contriever-onnx <data-root>/.leann/models/contriever-onnx
-```
-
-> **Forgot `git lfs install`?** Run `git lfs pull` inside the repo to download `model.onnx` (418 MB).
-
-### 3. Index Your Code
+### Index Your Code
 
 ```bash
 cd <data-root>
@@ -86,15 +84,17 @@ Add to your MCP client config (e.g., `.vscode/mcp.json`):
   "servers": {
     "leann": {
       "type": "stdio",
-      "command": "/path/to/leann-dotnet",
-      "args": [],
-      "cwd": "<data-root>"
+      "command": "leann-mcp",
+      "args": ["--mcp"],
+      "env": {
+        "LEANN_DATA_ROOT": "/path/to/your/data"
+      }
     }
   }
 }
 ```
 
-The `cwd` must point to the directory containing `.leann/`. The server auto-discovers all indexes at startup.
+`LEANN_DATA_ROOT` points to the directory containing `.leann/indexes/`. The model is loaded from `~/.leann/models/` by default (override with `LEANN_MODEL_DIR`).
 
 ### 5. Search
 
@@ -134,6 +134,7 @@ From your MCP client, use these tools:
 | **Embed** | `leann-dotnet --build-indexes` | Compute embeddings for passages |
 | **Full Pipeline** | `leann-dotnet --rebuild` | Chunk + embed in one step |
 | **Watch** | `leann-dotnet --watch` | Auto-sync git repos and rebuild on changes |
+| **Setup** | `leann-dotnet --setup` | Download ONNX model (~418 MB, one-time) |
 
 ### Passage Builder Flags
 

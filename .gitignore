@@ -34,3 +34,5 @@ Desktop.ini
 ## Build output
 nupkg/
 TestResults/
+
+contriever-onnx.zip
