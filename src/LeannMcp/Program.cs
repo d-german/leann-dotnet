@@ -14,6 +14,17 @@ if (args.Contains("--help") || args.Contains("-h"))
     return 0;
 }
 
+if (args.Contains("--setup"))
+{
+    var force = args.Contains("--force");
+    var modelDir = GetModelDir(GetDataRoot());
+    Console.Error.WriteLine("LEANN Setup");
+    Console.Error.WriteLine($"  Model directory: {modelDir}");
+    Console.Error.WriteLine();
+    var result = await LeannMcp.Services.ModelDownloader.EnsureModelAsync(modelDir, force);
+    return result.IsSuccess ? 0 : 1;
+}
+
 if (args.Contains("--build-passages"))
 {
     return RunBuildPassages(args);
@@ -331,6 +342,7 @@ static void PrintUsage()
           leann-dotnet --build-indexes [options]        Compute passage embeddings
           leann-dotnet --rebuild [options]              Chain: build-passages then build-indexes
           leann-dotnet --watch [options]                Auto-sync repos and rebuild on changes
+          leann-dotnet --setup                          Download ONNX model (run once after install)
           leann-dotnet --help                           Show this help
 
         Passage Builder Options:
@@ -361,7 +373,12 @@ static void PrintUsage()
           Periodically fetches each repo, detects new commits, and auto-rebuilds
           the passage + embedding index. Uses git to track changes. Press Ctrl+C to stop.
 
-        The tool looks for indexes in <cwd>/.leann/indexes/ and the ONNX model
-        in <cwd>/.leann/models/contriever-onnx/.
+        Setup:
+          Downloads the contriever ONNX model (~418 MB) to ~/.leann/models/.
+          Required once after install: leann-mcp --setup
+
+        Environment Variables:
+          LEANN_DATA_ROOT    Base directory for indexes (default: cwd)
+          LEANN_MODEL_DIR    Path to contriever-onnx model dir (default: ~/.leann/models/contriever-onnx)
         """);
 }
