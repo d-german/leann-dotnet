@@ -192,6 +192,12 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
 
     private void ConfigureExecutionProvider(SessionOptions options)
     {
+        if (Environment.GetEnvironmentVariable("LEANN_FORCE_CPU") is "1" or "true")
+        {
+            _logger.LogInformation("LEANN_FORCE_CPU set — using CPU only");
+            return;
+        }
+
         if (OperatingSystem.IsWindows())
             ConfigureWindowsProvider(options);
         else if (OperatingSystem.IsMacOS())
