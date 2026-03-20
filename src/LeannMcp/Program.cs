@@ -329,7 +329,7 @@ static string GetDataRoot() =>
 
 static string GetModelDir(string dataRoot) =>
     Environment.GetEnvironmentVariable("LEANN_MODEL_DIR")
-    ?? GetModelDir(dataRoot);
+    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".leann", "models", "contriever-onnx");
 
 static void PrintUsage()
 {
