@@ -206,6 +206,60 @@ leann-dotnet --build-indexes --force --max-tokens 256
 leann-dotnet --watch --interval 120
 ```
 
+## Tuning Guide
+
+### Chunk Size vs. Batch Size vs. Max Tokens
+
+These three settings control different parts of the pipeline:
+
+| Setting | What It Controls | CPU/GPU | When to Change |
+|---------|-----------------|---------|----------------|
+| `--chunk-size` | Characters per text passage | CPU (chunking) | Adjust search granularity |
+| `--code-chunk-size` | Characters per code passage | CPU (chunking) | Adjust code search granularity |
+| `--batch-size` | Passages processed per GPU call | GPU (embedding) | Match to your VRAM |
+| `--max-tokens` | Token sequence length per passage | GPU (embedding) | Trade speed vs. context |
+
+### Chunk Size (search quality)
+
+Chunk size controls how much context each passage contains. **This is independent of GPU power.**
+
+- **Smaller chunks** (128-256 chars) → more precise search hits, less context per result
+- **Larger chunks** (512-1024 chars) → more context per result, but may dilute relevance
+- **Code chunks** default larger (512) because functions/methods need more context than prose
+
+> **Note:** Passages longer than `--max-tokens` (default 512 tokens ≈ ~2000 chars) are truncated
+> during embedding. Making chunks larger than ~2000 chars wastes disk without improving search.
+
+### Batch Size (GPU utilization)
+
+Batch size determines how many passages are embedded simultaneously. **This is where GPU VRAM matters.**
+
+| GPU VRAM | Recommended `--batch-size` |
+|----------|---------------------------|
+| 4 GB | 32 (default) |
+| 8 GB | 64 |
+| 12+ GB | 128 |
+
+```bash
+# RTX 3500 Ada (12 GB) — crank up the batch size
+leann-mcp --rebuild --docs ./my-repo --index-name my-repo --batch-size 128
+
+# Low-VRAM GPU or integrated graphics
+leann-mcp --rebuild --docs ./my-repo --index-name my-repo --batch-size 8
+```
+
+### Max Tokens (speed vs. context)
+
+The contriever model processes up to 512 tokens per passage. Lowering this speeds up embedding
+(attention is O(n²)) at the cost of truncating longer passages.
+
+```bash
+# Faster indexing, slight quality trade-off on long passages
+leann-mcp --build-indexes --max-tokens 256
+
+# Full context (default)
+leann-mcp --build-indexes --max-tokens 512
+```
 ## Performance
 
 Embedding throughput on NVIDIA RTX A1000 (4GB VRAM):
