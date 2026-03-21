@@ -32,17 +32,17 @@
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
 
-    <!-- Windows: DirectML (GPU via DirectX) -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.3"
-                      Condition="'$(RuntimeIdentifier)' == 'win-x64'" />
+    <!--
+      GPU acceleration via DirectML (Windows) — unconditional so the NuGet tool
+      package includes the DirectML-enabled onnxruntime.dll.
+      macOS users: build from source with `dotnet publish -r osx-arm64` which
+      uses the base OnnxRuntime with CoreML support.
+    -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.3" />
 
-    <!-- macOS: Base OnnxRuntime (includes CoreML EP for Apple Silicon GPU/Neural Engine) -->
+    <!-- macOS self-contained publish only: base OnnxRuntime with CoreML -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3"
                       Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
-
-    <!-- Fallback: base OnnxRuntime for dotnet pack (no RID) and other platforms -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3"
-                      Condition="'$(RuntimeIdentifier)' != 'win-x64' AND '$(RuntimeIdentifier)' != 'osx-arm64'" />
   </ItemGroup>
 
 </Project>
