@@ -33,16 +33,32 @@
     <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
 
     <!--
-      GPU acceleration via DirectML (Windows) — unconditional so the NuGet tool
-      package includes the DirectML-enabled onnxruntime.dll.
-      macOS users: build from source with `dotnet publish -r osx-arm64` which
-      uses the base OnnxRuntime with CoreML support.
+      Cross-platform GPU acceleration:
+      - DirectML provides Windows-only native DLLs with GPU (DirectX 12) support.
+      - Base OnnxRuntime provides macOS (CoreML) and Linux (CPU) native DLLs.
+      - Both packages depend on OnnxRuntime.Managed for the C# API.
+      - ExcludeAssets="native" on the base package prevents its Windows DLLs
+        from overwriting DirectML's GPU-enabled versions.
     -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.3" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3" ExcludeAssets="native" />
+  </ItemGroup>
 
-    <!-- macOS self-contained publish only: base OnnxRuntime with CoreML -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3"
-                      Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
+  <!--
+    Manually include non-Windows native libraries from the base OnnxRuntime package.
+    ExcludeAssets="native" above prevents ALL native assets from base, so we selectively
+    re-include macOS and Linux native libraries here.
+  -->
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime\1.24.3\runtimes\osx-arm64\native\*"
+          Pack="true" PackagePath="runtimes\osx-arm64\native" Link="runtimes\osx-arm64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime\1.24.3\runtimes\linux-x64\native\*"
+          Pack="true" PackagePath="runtimes\linux-x64\native" Link="runtimes\linux-x64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime\1.24.3\runtimes\linux-arm64\native\*"
+          Pack="true" PackagePath="runtimes\linux-arm64\native" Link="runtimes\linux-arm64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
