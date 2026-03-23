@@ -36,3 +36,5 @@ nupkg/
 TestResults/
 
 contriever-onnx.zip
+
+.mcp-tasks/

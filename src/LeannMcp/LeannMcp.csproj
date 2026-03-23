@@ -22,10 +22,9 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 
     <!--
-      Both OnnxRuntime.DirectML and OnnxRuntime provide win-arm64 native DLLs.
-      ExcludeAssets="native" on the base package prevents conflicts during build,
-      but not during cross-platform self-contained publish. Allow the publisher
-      to resolve duplicates (DirectML's version wins) instead of erroring.
+      ErrorOnDuplicatePublishOutputFiles suppresses NETSDK1152 during the initial
+      publish-output copy. GenerateBundle has its own duplicate check that this
+      property does NOT cover, so it is only a partial safety net.
     -->
     <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
@@ -45,16 +44,22 @@
       - DirectML provides Windows-only native DLLs with GPU (DirectX 12) support.
       - Base OnnxRuntime provides macOS (CoreML) and Linux (CPU) native DLLs.
       - Both packages depend on OnnxRuntime.Managed for the C# API.
-      - ExcludeAssets="native" on the base package prevents its Windows DLLs
-        from overwriting DirectML's GPU-enabled versions.
+      - ExcludeAssets="all" on the base package prevents ALL of its assets
+        (including runtimes/*/native/ DLLs) from flowing into the build and
+        publish pipeline. The managed API is supplied transitively by DirectML's
+        dependency on OnnxRuntime.Managed. The package is still restored to the
+        NuGet cache so the manual <None Include> items below can reference its
+        macOS and Linux native libraries.
+        NOTE: "native" alone only covers the /native root folder; runtimes/*/native/
+        files are categorised as "runtime" assets, which is why "all" is required.
     -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.3" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3" ExcludeAssets="native" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.3" ExcludeAssets="all" />
   </ItemGroup>
 
   <!--
     Manually include non-Windows native libraries from the base OnnxRuntime package.
-    ExcludeAssets="native" above prevents ALL native assets from base, so we selectively
+    ExcludeAssets="all" above prevents ALL assets from base, so we selectively
     re-include macOS and Linux native libraries here.
     CopyToOutputDirectory ensures they reach the publish output, and the SDK's tool
     packaging places them under tools/<tfm>/any/runtimes/ automatically.
@@ -72,5 +77,22 @@
           Link="runtimes\linux-arm64\native\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!--
+    Safety net: during self-contained single-file publish, GenerateBundle fails
+    when two files share the same BundleRelativePath (e.g. onnxruntime.dll from
+    both OnnxRuntime and OnnxRuntime.DirectML). ExcludeAssets="all" above should
+    prevent the base package's files from flowing, but if the SDK's runtime-graph
+    resolver re-introduces them, this target strips them before bundling.
+  -->
+  <Target Name="_DeduplicateOnnxRuntimeNativeLibs"
+          BeforeTargets="GenerateBundle"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(FullPath)').Replace('\','/').Contains('/microsoft.ml.onnxruntime/'))
+                   AND $([System.String]::Copy('%(FullPath)').Replace('\','/').Contains('/runtimes/win-'))" />
+    </ItemGroup>
+  </Target>
 
 </Project>
