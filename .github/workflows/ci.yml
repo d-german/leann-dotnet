@@ -37,7 +37,7 @@ jobs:
         run: dotnet restore
 
       - name: Build
-        run: dotnet build --no-restore -c Release -r ${{ matrix.rid }}
+        run: dotnet build --no-restore -c Release
 
       - name: Test
         run: dotnet test --no-build -c Release --verbosity normal
