@@ -48,16 +48,20 @@
     Manually include non-Windows native libraries from the base OnnxRuntime package.
     ExcludeAssets="native" above prevents ALL native assets from base, so we selectively
     re-include macOS and Linux native libraries here.
+    CopyToOutputDirectory ensures they reach the publish output, and the SDK's tool
+    packaging places them under tools/<tfm>/any/runtimes/ automatically.
+    Do NOT add Pack="true" PackagePath="runtimes\..." here — that would place duplicate
+    copies at the nupkg root, which breaks DotnetTool package validation.
   -->
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime\1.24.3\runtimes\osx-arm64\native\*"
-          Pack="true" PackagePath="runtimes\osx-arm64\native" Link="runtimes\osx-arm64\native\%(Filename)%(Extension)"
+          Link="runtimes\osx-arm64\native\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime\1.24.3\runtimes\linux-x64\native\*"
-          Pack="true" PackagePath="runtimes\linux-x64\native" Link="runtimes\linux-x64\native\%(Filename)%(Extension)"
+          Link="runtimes\linux-x64\native\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime\1.24.3\runtimes\linux-arm64\native\*"
-          Pack="true" PackagePath="runtimes\linux-arm64\native" Link="runtimes\linux-arm64\native\%(Filename)%(Extension)"
+          Link="runtimes\linux-arm64\native\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
