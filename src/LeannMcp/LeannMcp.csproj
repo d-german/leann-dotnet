@@ -20,6 +20,14 @@
     <!-- Self-contained publish settings (only affect `dotnet publish`, not `dotnet pack`) -->
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!--
+      Both OnnxRuntime.DirectML and OnnxRuntime provide win-arm64 native DLLs.
+      ExcludeAssets="native" on the base package prevents conflicts during build,
+      but not during cross-platform self-contained publish. Allow the publisher
+      to resolve duplicates (DirectML's version wins) instead of erroring.
+    -->
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
 
   <ItemGroup>
