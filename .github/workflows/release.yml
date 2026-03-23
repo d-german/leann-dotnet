@@ -44,6 +44,8 @@ jobs:
           -c Release
           -r ${{ matrix.rid }}
           --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
           -p:Version=${{ steps.version.outputs.version }}
           -o publish/${{ matrix.rid }}
 
