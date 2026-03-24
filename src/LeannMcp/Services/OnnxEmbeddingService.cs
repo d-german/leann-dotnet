@@ -210,8 +210,9 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
     {
         try
         {
-            options.AppendExecutionProvider_DML(0);
-            _logger.LogInformation("Using DirectML execution provider");
+            var deviceId = ResolveDirectMlDevice();
+            options.AppendExecutionProvider_DML(deviceId);
+            _logger.LogInformation("Using DirectML execution provider on device {DeviceId}", deviceId);
         }
         catch (Exception ex)
         {
@@ -220,6 +221,42 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
                 "For GPU acceleration, use the self-contained binary from the shared drive or GitHub Releases.",
                 ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Resolves the DirectML device index. Priority:
+    /// 1. LEANN_GPU_DEVICE env var (explicit override)
+    /// 2. Auto-detect best GPU via DXGI enumeration (prefers discrete over integrated)
+    /// 3. Falls back to device 0
+    /// </summary>
+    private int ResolveDirectMlDevice()
+    {
+        var envDevice = Environment.GetEnvironmentVariable("LEANN_GPU_DEVICE");
+        if (!string.IsNullOrEmpty(envDevice))
+        {
+            if (int.TryParse(envDevice, out var explicitId))
+            {
+                _logger.LogInformation("LEANN_GPU_DEVICE={DeviceId} — using explicit GPU selection", explicitId);
+                return explicitId;
+            }
+
+            _logger.LogWarning("LEANN_GPU_DEVICE={Value} is not a valid integer — ignoring", envDevice);
+        }
+
+        _logger.LogInformation("Detecting available GPUs...");
+        var adapters = Infrastructure.DxgiAdapterEnumerator.EnumerateAdapters(_logger);
+
+        if (adapters.Count == 0)
+        {
+            _logger.LogInformation("No DXGI adapters found — defaulting to device 0");
+            return 0;
+        }
+
+        var best = Infrastructure.DxgiAdapterEnumerator.SelectBestAdapter(adapters, _logger);
+        _logger.LogInformation("Auto-selected GPU [{DeviceId}]: {Name}",
+            best, adapters.First(a => a.Index == best).Description);
+
+        return best;
     }
 
     private void ConfigureMacOsProvider(SessionOptions options)

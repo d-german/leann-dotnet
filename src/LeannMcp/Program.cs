@@ -380,5 +380,7 @@ static void PrintUsage()
         Environment Variables:
           LEANN_DATA_ROOT    Base directory for indexes (default: cwd)
           LEANN_MODEL_DIR    Path to contriever-onnx model dir (default: ~/.leann/models/contriever-onnx)
+          LEANN_GPU_DEVICE   DirectML GPU device index override (default: auto-detect best GPU)
+          LEANN_FORCE_CPU    Set to "1" or "true" to disable GPU and use CPU only
         """);
 }
