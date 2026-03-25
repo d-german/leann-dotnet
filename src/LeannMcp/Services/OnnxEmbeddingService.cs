@@ -1,8 +1,6 @@
-using System.Numerics;
 using CSharpFunctionalExtensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
-using Microsoft.ML.OnnxRuntime.Tensors;
 using Microsoft.ML.Tokenizers;
 
 namespace LeannMcp.Services;
@@ -18,7 +16,9 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
     private readonly Tokenizer _tokenizer;
     private readonly ILogger<OnnxEmbeddingService> _logger;
     private readonly int _maxLength;
+    private readonly object _inferenceGate = new();
     private bool _warmedUp;
+    private bool _disposed;
 
     public OnnxEmbeddingService(string modelDirectory, ILogger<OnnxEmbeddingService> logger, int maxTokens = 512)
     {
@@ -36,11 +36,21 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
 
     public void Warmup()
     {
-        if (_warmedUp) return;
-        _logger.LogInformation("Warming up embedding model...");
-        ComputeEmbedding("__LEANN_WARMUP__");
-        _warmedUp = true;
-        _logger.LogInformation("Embedding model warmed up.");
+        lock (_inferenceGate)
+        {
+            ThrowIfDisposed();
+
+            if (_warmedUp) return;
+
+            _logger.LogInformation("Warming up embedding model...");
+
+            var result = ComputeEmbeddings(["__LEANN_WARMUP__"]);
+            if (result.IsFailure)
+                throw new InvalidOperationException($"Embedding warmup failed: {result.Error}");
+
+            _warmedUp = true;
+            _logger.LogInformation("Embedding model warmed up.");
+        }
     }
 
     public Result<float[]> ComputeEmbedding(string text)
@@ -51,59 +61,68 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
 
     public Result<float[][]> ComputeEmbeddings(IReadOnlyList<string> texts)
     {
-        try
+        lock (_inferenceGate)
         {
-            if (texts.Count == 0)
-                return Result.Failure<float[][]>("Cannot compute embeddings for empty text list");
-
-            var (inputIds, attentionMask, seqLen) = Tokenize(texts);
-            var batchSize = texts.Count;
-
-            using var inputIdsTensor = OrtValue.CreateTensorValueFromMemory(
-                inputIds, [batchSize, seqLen]);
-            using var attMaskTensor = OrtValue.CreateTensorValueFromMemory(
-                attentionMask, [batchSize, seqLen]);
-
-            var inputs = new Dictionary<string, OrtValue>
-            {
-                ["input_ids"] = inputIdsTensor,
-                ["attention_mask"] = attMaskTensor,
-            };
-
-            // Add token_type_ids if the model expects it
-            OrtValue? tokenTypeTensor = null;
-            if (_session.InputMetadata.ContainsKey("token_type_ids"))
-            {
-                var tokenTypeIds = new long[batchSize * seqLen];
-                tokenTypeTensor = OrtValue.CreateTensorValueFromMemory(
-                    tokenTypeIds, [batchSize, seqLen]);
-                inputs["token_type_ids"] = tokenTypeTensor;
-            }
-
             try
             {
-                using var runOptions = new RunOptions();
-                using var outputs = _session.Run(runOptions, inputs, _session.OutputNames);
+                ThrowIfDisposed();
 
-                var lastHiddenState = outputs[0]; // (batch, seq_len, hidden_dim)
-                var shape = lastHiddenState.GetTensorTypeAndShape().Shape;
-                var hiddenDim = (int)shape[2];
+                if (texts.Count == 0)
+                    return Result.Failure<float[][]>("Cannot compute embeddings for empty text list");
 
-                var embeddings = MeanPool(
-                    lastHiddenState.GetTensorDataAsSpan<float>(),
-                    attentionMask, batchSize, seqLen, hiddenDim);
+                var (inputIds, attentionMask, seqLen) = Tokenize(texts);
+                var batchSize = texts.Count;
 
-                return Result.Success(embeddings);
+                using var inputIdsTensor = OrtValue.CreateTensorValueFromMemory(
+                    inputIds, [batchSize, seqLen]);
+                using var attMaskTensor = OrtValue.CreateTensorValueFromMemory(
+                    attentionMask, [batchSize, seqLen]);
+
+                var inputs = new Dictionary<string, OrtValue>
+                {
+                    ["input_ids"] = inputIdsTensor,
+                    ["attention_mask"] = attMaskTensor,
+                };
+
+                // DirectML sessions do not support concurrent Run calls on the same
+                // InferenceSession, so tokenization + inference are serialized through
+                // _inferenceGate to keep the singleton service safe for concurrent MCP requests.
+
+                // Add token_type_ids if the model expects it
+                OrtValue? tokenTypeTensor = null;
+                if (_session.InputMetadata.ContainsKey("token_type_ids"))
+                {
+                    var tokenTypeIds = new long[batchSize * seqLen];
+                    tokenTypeTensor = OrtValue.CreateTensorValueFromMemory(
+                        tokenTypeIds, [batchSize, seqLen]);
+                    inputs["token_type_ids"] = tokenTypeTensor;
+                }
+
+                try
+                {
+                    using var runOptions = new RunOptions();
+                    using var outputs = _session.Run(runOptions, inputs, _session.OutputNames);
+
+                    var lastHiddenState = outputs[0]; // (batch, seq_len, hidden_dim)
+                    var shape = lastHiddenState.GetTensorTypeAndShape().Shape;
+                    var hiddenDim = (int)shape[2];
+
+                    var embeddings = MeanPool(
+                        lastHiddenState.GetTensorDataAsSpan<float>(),
+                        attentionMask, batchSize, seqLen, hiddenDim);
+
+                    return Result.Success(embeddings);
+                }
+                finally
+                {
+                    tokenTypeTensor?.Dispose();
+                }
             }
-            finally
+            catch (Exception ex)
             {
-                tokenTypeTensor?.Dispose();
+                _logger.LogError(ex, "Embedding computation failed");
+                return Result.Failure<float[][]>($"Embedding computation failed: {ex.Message}");
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Embedding computation failed");
-            return Result.Failure<float[][]>($"Embedding computation failed: {ex.Message}");
         }
     }
 
@@ -183,6 +202,7 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
         {
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
             LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_WARNING,
+            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
         };
 
         ConfigureExecutionProvider(options);
@@ -210,9 +230,14 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
     {
         try
         {
+            options.EnableMemoryPattern = false;
+            options.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
+
             var deviceId = ResolveDirectMlDevice();
             options.AppendExecutionProvider_DML(deviceId);
-            _logger.LogInformation("Using DirectML execution provider on device {DeviceId}", deviceId);
+            _logger.LogInformation(
+                "Using DirectML execution provider on device {DeviceId} (sequential execution, memory pattern disabled)",
+                deviceId);
         }
         catch (Exception ex)
         {
@@ -294,6 +319,19 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
 
     public void Dispose()
     {
-        _session.Dispose();
+        lock (_inferenceGate)
+        {
+            if (_disposed) return;
+
+            _disposed = true;
+            _session.Dispose();
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(OnnxEmbeddingService));
     }
 }
+
