@@ -57,6 +57,11 @@ dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/wi
 ```
 
 > **Forgot `git lfs install`?** Run `git lfs pull` to download `model.onnx`.
+>
+> **Note:** When built from source the executable is named `leann-dotnet` (the `AssemblyName`).
+> All command examples in this README use `leann-mcp`, which is the command installed by
+> `dotnet tool install -g LeannMcp`. Substitute `leann-dotnet` (or the full path to your
+> published binary) if you are running a source build.
 
 ### Index Your Code
 
@@ -64,13 +69,13 @@ dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/wi
 cd <data-root>
 
 # Step 1: Chunk source code into passages
-leann-dotnet --build-passages --docs /path/to/my-repo --index-name my-repo
+leann-mcp --build-passages --docs /path/to/my-repo --index-name my-repo
 
 # Step 2: Compute embeddings (GPU-accelerated)
-leann-dotnet --build-indexes --index my-repo
+leann-mcp --build-indexes --index my-repo
 
 # Or do both in one command:
-leann-dotnet --rebuild --docs /path/to/my-repo --index-name my-repo
+leann-mcp --rebuild --docs /path/to/my-repo --index-name my-repo
 ```
 
 This creates `<data-root>/.leann/indexes/my-repo/` with passages + embeddings.
@@ -129,12 +134,12 @@ From your MCP client, use these tools:
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **MCP Server** | `leann-dotnet` | Default. Starts MCP server on stdio |
-| **Chunk** | `leann-dotnet --build-passages` | Split source files into passages |
-| **Embed** | `leann-dotnet --build-indexes` | Compute embeddings for passages |
-| **Full Pipeline** | `leann-dotnet --rebuild` | Chunk + embed in one step |
-| **Watch** | `leann-dotnet --watch` | Auto-sync git repos and rebuild on changes |
-| **Setup** | `leann-dotnet --setup` | Download ONNX model (~418 MB, one-time) |
+| **MCP Server** | `leann-mcp` | Default. Starts MCP server on stdio |
+| **Chunk** | `leann-mcp --build-passages` | Split source files into passages |
+| **Embed** | `leann-mcp --build-indexes` | Compute embeddings for passages |
+| **Full Pipeline** | `leann-mcp --rebuild` | Chunk + embed in one step |
+| **Watch** | `leann-mcp --watch` | Auto-sync git repos and rebuild on changes |
+| **Setup** | `leann-mcp --setup` | Download ONNX model (~418 MB, one-time) |
 
 ### Passage Builder Flags
 
@@ -188,22 +193,22 @@ you can set `LEANN_FORCE_CPU=1` to free your GPU — single query embedding is f
 
 ```bash
 # Index a single repo
-leann-dotnet --rebuild --docs ~/projects/my-app --index-name my-app
+leann-mcp --rebuild --docs ~/projects/my-app --index-name my-app
 
 # Index multiple directories into one index
-leann-dotnet --build-passages --docs ~/proj/frontend ~/proj/backend --index-name my-app
+leann-mcp --build-passages --docs ~/proj/frontend ~/proj/backend --index-name my-app
 
 # Rebuild all embeddings with smaller batches (low VRAM GPU)
-leann-dotnet --build-indexes --force --batch-size 8
+leann-mcp --build-indexes --force --batch-size 8
 
 # Rebuild everything except one large index
-leann-dotnet --build-indexes --exclude large-mono-repo
+leann-mcp --build-indexes --exclude large-mono-repo
 
 # Use shorter token sequences for faster indexing (slight quality trade-off)
-leann-dotnet --build-indexes --force --max-tokens 256
+leann-mcp --build-indexes --force --max-tokens 256
 
 # Auto-watch repos for changes
-leann-dotnet --watch --interval 120
+leann-mcp --watch --interval 120
 ```
 
 ## Tuning Guide
@@ -309,7 +314,7 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release LeannMcp
 | Problem | Solution |
 |---------|----------|
 | "No ONNX model found" | Place model at `<cwd>/.leann/models/contriever-onnx/` |
-| "Pre-computed embeddings not found" | Run `leann-dotnet --build-indexes` |
+| "Pre-computed embeddings not found" | Run `leann-mcp --build-indexes` |
 | "DirectML not available" | Falls back to CPU automatically. Update GPU drivers. |
 | Slow first search | Call `leann_warmup` to pre-load the model |
 | Out of GPU memory | Use `--batch-size 8` or lower |
