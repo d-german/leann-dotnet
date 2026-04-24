@@ -21,10 +21,25 @@ if (args.Contains("--setup"))
     var descriptor = GetActiveDescriptor();
     var modelDir = GetModelDir(GetDataRoot(), descriptor);
     Console.Error.WriteLine("LEANN Setup");
+    Console.Error.WriteLine($"  Model: {descriptor.DisplayName} ({descriptor.Id})");
     Console.Error.WriteLine($"  Model directory: {modelDir}");
     Console.Error.WriteLine();
-    var result = await LeannMcp.Services.ModelDownloader.EnsureModelAsync(modelDir, force);
-    return result.IsSuccess ? 0 : 1;
+
+    if (force)
+    {
+        var marker = Path.Combine(modelDir, ".sha256.ok");
+        if (File.Exists(marker)) File.Delete(marker);
+        var onnx = Path.Combine(modelDir, descriptor.OnnxFilename);
+        if (File.Exists(onnx)) File.Delete(onnx);
+    }
+
+    var result = await LeannMcp.Services.ModelDownloader.DownloadModelAsync(descriptor, modelDir, CancellationToken.None);
+    if (result.IsFailure)
+    {
+        Console.Error.WriteLine($"ERROR: {result.Error}");
+        return 1;
+    }
+    return 0;
 }
 
 if (args.Contains("--build-passages"))
