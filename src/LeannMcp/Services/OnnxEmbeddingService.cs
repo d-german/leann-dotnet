@@ -8,7 +8,7 @@ using Microsoft.ML.Tokenizers;
 namespace LeannMcp.Services;
 
 /// <summary>
-/// Computes text embeddings using an ONNX model (facebook/contriever).
+/// Computes text embeddings using an ONNX model described by an <see cref="EmbeddingModelDescriptor"/>.
 /// Platform-aware: DirectML on Windows, CoreML on macOS (Apple Silicon).
 /// Mean-pools last_hidden_state over non-padding tokens to produce 768-dim vectors.
 /// </summary>

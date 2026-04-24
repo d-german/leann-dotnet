@@ -11,7 +11,7 @@ namespace LeannMcp.Services.Chunking;
 /// Writes the full set of index files that <see cref="IndexBuilder"/> can read.
 /// Produces: passages.jsonl, passages.idx (JSON), ids.txt, meta.json, sync_roots.json.
 /// </summary>
-public sealed class PassageWriter(ILogger<PassageWriter> logger) : IPassageWriter
+public sealed class PassageWriter(ILogger<PassageWriter> logger, EmbeddingModelDescriptor descriptor) : IPassageWriter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -39,7 +39,7 @@ public sealed class PassageWriter(ILogger<PassageWriter> logger) : IPassageWrite
             return WritePassagesJsonl(indexDir, passages)
                 .Bind(() => WriteOffsetIndex(indexDir, passages))
                 .Bind(() => WriteIdsFile(indexDir, passages))
-                .Bind(() => WriteMetaJson(indexDir))
+                .Bind(() => WriteMetaJson(indexDir, descriptor))
                 .Bind(() => WriteSyncRoots(indexDir, syncRoots))
                 .Tap(() => logger.LogInformation(
                     "[{Name}] Wrote {Count} passages to {Dir}",
@@ -114,15 +114,15 @@ public sealed class PassageWriter(ILogger<PassageWriter> logger) : IPassageWrite
         }
     }
 
-    private static Result WriteMetaJson(string indexDir)
+    private static Result WriteMetaJson(string indexDir, EmbeddingModelDescriptor descriptor)
     {
         try
         {
             var meta = new IndexMetadata(
                 Version: "1.0",
                 BackendName: "flat-cosine",
-                EmbeddingModel: "facebook/contriever",
-                Dimensions: 768,
+                EmbeddingModel: descriptor.Id,
+                Dimensions: descriptor.Dimensions,
                 EmbeddingMode: "onnx-directml",
                 PassageSources:
                 [
