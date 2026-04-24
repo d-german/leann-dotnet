@@ -1,4 +1,6 @@
 using CSharpFunctionalExtensions;
+using LeannMcp.Models;
+using LeannMcp.Tokenization;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.Tokenizers;
@@ -20,14 +22,26 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
     private bool _warmedUp;
     private bool _disposed;
 
-    public OnnxEmbeddingService(string modelDirectory, ILogger<OnnxEmbeddingService> logger, int maxTokens = 512)
+    public OnnxEmbeddingService(
+        string modelDirectory,
+        EmbeddingModelDescriptor descriptor,
+        IEnumerable<ITokenizerFactory> tokenizerFactories,
+        ILogger<OnnxEmbeddingService> logger,
+        int maxTokens = 512)
     {
         _logger = logger;
         _maxLength = maxTokens;
 
         var onnxPath = FindOnnxModel(modelDirectory);
         _session = CreateSession(onnxPath);
-        _tokenizer = LoadTokenizer(modelDirectory);
+
+        var typeName = descriptor.TokenizerType.ToString();
+        var factory = tokenizerFactories.SingleOrDefault(f => f.Type == typeName)
+            ?? throw new InvalidOperationException($"No ITokenizerFactory registered for type '{typeName}'.");
+        var tokResult = factory.Create(modelDirectory);
+        if (tokResult.IsFailure)
+            throw new InvalidOperationException($"Tokenizer load failed: {tokResult.Error}");
+        _tokenizer = tokResult.Value;
 
         _logger.LogInformation("ONNX session created. Inputs: {Inputs}",
             string.Join(", ", _session.InputMetadata.Keys));
@@ -295,15 +309,6 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
         {
             _logger.LogWarning("CoreML not available ({Message}). Falling back to CPU.", ex.Message);
         }
-    }
-
-    private static Tokenizer LoadTokenizer(string modelDirectory)
-    {
-        var vocabPath = Path.Combine(modelDirectory, "vocab.txt");
-        if (!File.Exists(vocabPath))
-            throw new FileNotFoundException($"Tokenizer vocab.txt not found at {vocabPath}");
-
-        return WordPieceTokenizer.Create(vocabPath, new WordPieceOptions { UnknownToken = "[UNK]" });
     }
 
     private static string FindOnnxModel(string modelDirectory)

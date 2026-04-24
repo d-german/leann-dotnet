@@ -2,6 +2,7 @@
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
+using LeannMcp.Tokenization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -83,8 +84,15 @@ static async Task RunMcpServer(string[] args)
     var modelsDir = GetModelDir(dataRoot, descriptor);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
+    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
+    builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
+    builder.Services.AddSingleton<ITokenizerFactory, RobertaBpeTokenizerFactory>();
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
-        new OnnxEmbeddingService(modelsDir, sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
+        new OnnxEmbeddingService(
+            modelsDir,
+            sp.GetRequiredService<EmbeddingModelDescriptor>(),
+            sp.GetServices<ITokenizerFactory>(),
+            sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
     builder.Services.AddSingleton(sp =>
         new IndexManager(sp.GetRequiredService<IEmbeddingService>(), sp.GetRequiredService<ILogger<IndexManager>>(), indexesDir));
 
@@ -119,8 +127,15 @@ static async Task RunWatch(string[] args)
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
+    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
+    builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
+    builder.Services.AddSingleton<ITokenizerFactory, RobertaBpeTokenizerFactory>();
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
-        new OnnxEmbeddingService(modelsDir, sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
+        new OnnxEmbeddingService(
+            modelsDir,
+            sp.GetRequiredService<EmbeddingModelDescriptor>(),
+            sp.GetServices<ITokenizerFactory>(),
+            sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
     builder.Services.AddSingleton<IndexBuilder>();
 
     builder.Services.AddHostedService(sp => new RepoWatcherService(
@@ -260,8 +275,16 @@ static async Task<int> RunBuildIndexes(string[] args)
     var modelsDir = GetModelDir(dataRoot, descriptor);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
+    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
+    builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
+    builder.Services.AddSingleton<ITokenizerFactory, RobertaBpeTokenizerFactory>();
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
-        new OnnxEmbeddingService(modelsDir, sp.GetRequiredService<ILogger<OnnxEmbeddingService>>(), maxTokens));
+        new OnnxEmbeddingService(
+            modelsDir,
+            sp.GetRequiredService<EmbeddingModelDescriptor>(),
+            sp.GetServices<ITokenizerFactory>(),
+            sp.GetRequiredService<ILogger<OnnxEmbeddingService>>(),
+            maxTokens));
     builder.Services.AddSingleton<IndexBuilder>();
 
     var host = builder.Build();
