@@ -38,3 +38,6 @@ TestResults/
 contriever-onnx.zip
 
 .mcp-tasks/
+
+# Local scratch workspace
+/.tmp/

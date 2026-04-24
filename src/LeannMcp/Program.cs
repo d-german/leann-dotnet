@@ -17,7 +17,8 @@ if (args.Contains("--help") || args.Contains("-h"))
 if (args.Contains("--setup"))
 {
     var force = args.Contains("--force");
-    var modelDir = GetModelDir(GetDataRoot());
+    var descriptor = GetActiveDescriptor();
+    var modelDir = GetModelDir(GetDataRoot(), descriptor);
     Console.Error.WriteLine("LEANN Setup");
     Console.Error.WriteLine($"  Model directory: {modelDir}");
     Console.Error.WriteLine();
@@ -78,7 +79,8 @@ static async Task RunMcpServer(string[] args)
     });
 
     var dataRoot = GetDataRoot();
-    var modelsDir = GetModelDir(dataRoot);
+    var descriptor = GetActiveDescriptor();
+    var modelsDir = GetModelDir(dataRoot, descriptor);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
@@ -104,7 +106,8 @@ static async Task RunWatch(string[] args)
     var configPath = ParseStringArg(args, "--repos-config")
                      ?? Path.Combine(dataRoot, ".leann", "repos.json");
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
-    var modelsDir = GetModelDir(dataRoot);
+    var descriptor = GetActiveDescriptor();
+    var modelsDir = GetModelDir(dataRoot, descriptor);
 
     var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
     builder.Logging.ClearProviders();
@@ -253,7 +256,8 @@ static async Task<int> RunBuildIndexes(string[] args)
     });
 
     var dataRoot = GetDataRoot();
-    var modelsDir = GetModelDir(dataRoot);
+    var descriptor = GetActiveDescriptor();
+    var modelsDir = GetModelDir(dataRoot, descriptor);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<IEmbeddingService>(sp =>
@@ -356,9 +360,21 @@ static string GetDataRoot() =>
     Environment.GetEnvironmentVariable("LEANN_DATA_ROOT")
     ?? Directory.GetCurrentDirectory();
 
-static string GetModelDir(string dataRoot) =>
-    Environment.GetEnvironmentVariable("LEANN_MODEL_DIR")
-    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".leann", "models", "contriever-onnx");
+static EmbeddingModelDescriptor GetActiveDescriptor()
+{
+    var id = Environment.GetEnvironmentVariable("LEANN_MODEL");
+    if (string.IsNullOrWhiteSpace(id)) return ModelRegistry.Default;
+    var maybe = ModelRegistry.GetById(id);
+    return maybe.GetValueOrDefault(ModelRegistry.Default);
+}
+
+static string GetModelDir(string dataRoot, EmbeddingModelDescriptor descriptor)
+{
+    var legacy = Environment.GetEnvironmentVariable("LEANN_MODEL_DIR");
+    if (!string.IsNullOrWhiteSpace(legacy)) return legacy;
+    var safeId = descriptor.Id.Replace('/', '-').Replace('\\', '-');
+    return Path.Combine(dataRoot, "models", safeId);
+}
 
 static void PrintUsage()
 {
