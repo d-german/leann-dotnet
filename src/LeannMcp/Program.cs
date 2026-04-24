@@ -18,7 +18,24 @@ if (args.Contains("--help") || args.Contains("-h"))
 if (args.Contains("--setup"))
 {
     var force = args.Contains("--force");
-    var descriptor = GetActiveDescriptor();
+    var modelId = ParseStringArg(args, "--model");
+    EmbeddingModelDescriptor descriptor;
+    if (modelId is not null)
+    {
+        var maybe = ModelRegistry.GetById(modelId);
+        if (maybe.HasNoValue)
+        {
+            Console.Error.WriteLine($"Unknown model id '{modelId}'. Available ids:");
+            foreach (var m in ModelRegistry.All)
+                Console.Error.WriteLine($"  {m.Id}");
+            return 1;
+        }
+        descriptor = maybe.GetValueOrThrow();
+    }
+    else
+    {
+        descriptor = GetActiveDescriptor();
+    }
     var modelDir = GetModelDir(GetDataRoot(), descriptor);
     Console.Error.WriteLine("LEANN Setup");
     Console.Error.WriteLine($"  Model: {descriptor.DisplayName} ({descriptor.Id})");
@@ -425,7 +442,7 @@ static void PrintUsage()
           leann-mcp --build-indexes [options]        Compute passage embeddings
           leann-mcp --rebuild [options]              Chain: build-passages then build-indexes
           leann-mcp --watch [options]                Auto-sync repos and rebuild on changes
-          leann-mcp --setup                          Download ONNX model (run once after install)
+          leann-mcp --setup [--model ID] [--force]   Download ONNX model (run once after install)
           leann-mcp --help                           Show this help
 
         Passage Builder Options:
@@ -478,8 +495,10 @@ static void PrintUsage()
             "useAst":           true                           // AST chunking (default true)
 
         Setup:
-          Downloads the contriever ONNX model (~418 MB) to ~/.leann/models/.
+          Downloads the selected ONNX model to ~/.leann/models/.
           Required once after install: leann-mcp --setup
+          Override the model with --model <id> (see ModelRegistry for valid ids).
+          Use --force to re-download even if a verified model is already present.
 
         Environment Variables:
           LEANN_DATA_ROOT    Base directory for indexes (default: cwd)
