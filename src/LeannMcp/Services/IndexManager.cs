@@ -14,6 +14,7 @@ namespace LeannMcp.Services;
 public sealed class IndexManager
 {
     private readonly IEmbeddingService _embeddingService;
+    private readonly EmbeddingModelDescriptor _activeDescriptor;
     private readonly ILogger<IndexManager> _logger;
     private readonly ConcurrentDictionary<string, LeannIndex> _cache = new();
     private readonly string _indexesDir;
@@ -21,14 +22,19 @@ public sealed class IndexManager
     public string IndexesDir => _indexesDir;
     private readonly int _dimensions;
 
-    public IndexManager(IEmbeddingService embeddingService, ILogger<IndexManager> logger, string? indexesDir = null)
+    public IndexManager(
+        IEmbeddingService embeddingService,
+        EmbeddingModelDescriptor activeDescriptor,
+        ILogger<IndexManager> logger,
+        string? indexesDir = null)
     {
         _embeddingService = embeddingService;
+        _activeDescriptor = activeDescriptor;
         _logger = logger;
         _indexesDir = indexesDir ?? Path.Combine(
             Environment.GetEnvironmentVariable("LEANN_DATA_ROOT") ?? Directory.GetCurrentDirectory(),
             ".leann", "indexes");
-        _dimensions = 768;
+        _dimensions = activeDescriptor.Dimensions;
     }
 
     public Result<IReadOnlyList<SearchResult>> Search(string indexName, string query, int topK = 5, int complexity = 32)
@@ -110,6 +116,10 @@ public sealed class IndexManager
             var metadata = JsonSerializer.Deserialize<IndexMetadata>(metaJson);
             if (metadata is null)
                 return Result.Failure<LeannIndex>($"Failed to deserialize metadata for '{indexName}'");
+
+            var compatibility = IndexCompatibility.EnsureCompatibleModel(metadata, _activeDescriptor, indexDir);
+            if (compatibility.IsFailure)
+                return Result.Failure<LeannIndex>(compatibility.Error);
 
             // Resolve passage file path (relative to index directory)
             var passageSource = metadata.PassageSources.FirstOrDefault();

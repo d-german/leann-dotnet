@@ -126,7 +126,11 @@ static async Task RunMcpServer(string[] args)
             sp.GetServices<ITokenizerFactory>(),
             sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
     builder.Services.AddSingleton(sp =>
-        new IndexManager(sp.GetRequiredService<IEmbeddingService>(), sp.GetRequiredService<ILogger<IndexManager>>(), indexesDir));
+        new IndexManager(
+            sp.GetRequiredService<IEmbeddingService>(),
+            sp.GetRequiredService<EmbeddingModelDescriptor>(),
+            sp.GetRequiredService<ILogger<IndexManager>>(),
+            indexesDir));
 
     builder.Services
         .AddMcpServer()
