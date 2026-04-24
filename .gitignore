@@ -41,3 +41,6 @@ contriever-onnx.zip
 
 # Local scratch workspace
 /.tmp/
+
+# Downloaded model artifacts (created by leann-mcp --setup when LEANN_DATA_ROOT is repo root)
+/models/

@@ -234,6 +234,7 @@ static int RunBuildPassages(string[] args)
     builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
+    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => GetActiveDescriptor());
 
     var host = builder.Build();
 
