@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using CSharpFunctionalExtensions;
 
@@ -12,7 +12,12 @@ public sealed record RepoEntry(
     [property: JsonPropertyName("gitUrl")] string GitUrl,
     [property: JsonPropertyName("branch")] string Branch,
     [property: JsonPropertyName("indexName")] string IndexName,
-    [property: JsonPropertyName("enabled")] bool Enabled = true);
+    [property: JsonPropertyName("enabled")] bool Enabled = true,
+    [property: JsonPropertyName("fileTypes")] IReadOnlyList<string>? FileTypes = null,
+    [property: JsonPropertyName("excludePaths")] IReadOnlyList<string>? ExcludePaths = null,
+    [property: JsonPropertyName("codeChunkSize")] int? CodeChunkSize = null,
+    [property: JsonPropertyName("codeChunkOverlap")] int? CodeChunkOverlap = null,
+    [property: JsonPropertyName("useAst")] bool? UseAst = null);
 
 /// <summary>
 /// Top-level watcher configuration loaded from repos.json.

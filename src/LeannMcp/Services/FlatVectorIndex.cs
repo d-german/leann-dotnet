@@ -68,19 +68,37 @@ public sealed class FlatVectorIndex : IVectorIndex
 
     private static float[][] LoadEmbeddings(string embeddingsPath, int count, int dimensions)
     {
-        var fileBytes = File.ReadAllBytes(embeddingsPath);
-        var expectedSize = count * dimensions * sizeof(float);
-        if (fileBytes.Length != expectedSize)
+        var rowBytes = dimensions * sizeof(float);
+        var expectedSize = (long)count * rowBytes;
+        var actualSize = new FileInfo(embeddingsPath).Length;
+        if (actualSize != expectedSize)
             throw new InvalidDataException(
-                $"Embeddings file size {fileBytes.Length} != expected {expectedSize} " +
+                $"Embeddings file size {actualSize} != expected {expectedSize} " +
                 $"({count} vectors x {dimensions} dims x 4 bytes)");
 
-        var floats = MemoryMarshal.Cast<byte, float>(fileBytes.AsSpan());
         var embeddings = new float[count][];
+        using var stream = new FileStream(
+            embeddingsPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 1 << 20,
+            useAsync: false);
+
         for (int i = 0; i < count; i++)
         {
-            embeddings[i] = new float[dimensions];
-            floats.Slice(i * dimensions, dimensions).CopyTo(embeddings[i]);
+            var row = new float[dimensions];
+            var rowSpan = MemoryMarshal.AsBytes(row.AsSpan());
+            int offset = 0;
+            while (offset < rowBytes)
+            {
+                var read = stream.Read(rowSpan.Slice(offset));
+                if (read <= 0)
+                    throw new EndOfStreamException(
+                        $"Unexpected EOF at row {i}, offset {offset}/{rowBytes}.");
+                offset += read;
+            }
+            embeddings[i] = row;
         }
         return embeddings;
     }

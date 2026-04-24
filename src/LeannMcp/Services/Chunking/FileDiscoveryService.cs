@@ -33,6 +33,12 @@ public sealed class FileDiscoveryService(ILogger<FileDiscoveryService> logger) :
 
         LoadGitIgnoreRecursive(filter, rootFull);
 
+        if (options.ExcludePaths is { Count: > 0 } extra)
+        {
+            filter.AddPatterns(extra);
+            logger.LogInformation("Applying {Count} CLI exclude pattern(s)", extra.Count);
+        }
+
         logger.LogInformation("Discovering files in {Root}", rootFull);
         WalkDirectory(rootFull, rootFull, filter, supportedExtensions, options.IncludeHidden, documents);
         logger.LogInformation("Discovered {Count} files in {Root}", documents.Count, rootFull);

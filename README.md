@@ -76,9 +76,18 @@ leann-mcp --build-indexes --index my-repo
 
 # Or do both in one command:
 leann-mcp --rebuild --docs /path/to/my-repo --index-name my-repo
+
+# Restrict to specific file types (whitelist; comma- or space-separated):
+leann-mcp --rebuild --docs /path/to/my-repo --index-name my-repo \
+  --file-types .cs,.csproj,.sln,.props,.targets
 ```
 
 This creates `<data-root>/.leann/indexes/my-repo/` with passages + embeddings.
+
+> **Tip:** Use `--file-types` to dramatically shrink the index on large polyglot
+> repos. Restricting a 2.4M-passage C#/JS/CSS mono-repo to `.cs,.csproj,.sln`
+> typically cuts the embeddings file from ~7 GB down to ~1–2 GB and removes
+> noise (minified JS, vendored libraries, test fixtures) from search results.
 
 ### 4. Connect an MCP Client
 
@@ -152,6 +161,9 @@ From your MCP client, use these tools:
 | `--code-chunk-size N` | Code chunk size in chars | 512 |
 | `--code-chunk-overlap N` | Code chunk overlap | 64 |
 | `--include-hidden` | Include hidden files/dirs | false |
+| `--file-types EXT [EXT...]` | Whitelist of extensions (e.g. `.cs .csproj` or `.cs,.csproj`). When set, overrides the built-in extension defaults | (built-in defaults) |
+| `--exclude-paths PAT [PAT...]` | Gitignore-style globs to skip (e.g. `"**/Tests/**" "**/Mocks/**"`). Supports `**`, `*`, `?`. Combined with any `.gitignore` files found in the tree | (none) |
+| `--no-ast` | Disable AST-aware code chunking (Roslyn for C#, brace-balanced for TS/JS/Java/C-family) and fall back to the legacy line-based sliding-window chunker | false (AST enabled) |
 | `--force` | Overwrite existing passages | false |
 
 ### Index Builder Flags
@@ -170,6 +182,92 @@ From your MCP client, use these tools:
 |------|-------------|---------|
 | `--interval N` | Check interval in seconds | 300 |
 | `--repos-config PATH` | Path to repos.json config | `.leann/repos.json` |
+| `--force` | Force a full rebuild on the first sweep, then resume normal change-detection. Useful for one-shot reindex of every repo without changing the daemon model | false |
+
+#### Per-repo settings in `repos.json`
+
+Each entry supports optional per-repo filters and chunking overrides:
+
+```jsonc
+{
+  "intervalSeconds": 300,
+  "repos": [
+    {
+      "folder": "C:\\OnBase.NET",
+      "gitUrl": "git@github.com:org/OnBase.NET.git",
+      "branch": "main",
+      "indexName": "onbase-dotnet",
+      "enabled": true,
+
+      // Optional — same semantics as the CLI flags
+      "fileTypes":        [".cs", ".props", ".targets", ".json"],
+      "excludePaths": [
+        "**/Tests/**", "**/*.Tests/**", "**/*Tests.cs",
+        "**/Mocks/**", "**/third-party-assemblies/**",
+        "**/project.assets.json", "**/*.deps.json"
+      ],
+      "codeChunkSize":    1024,   // overrides default 512
+      "codeChunkOverlap": 128,    // overrides default 64
+      "useAst":           true    // AST-aware chunking (default true)
+    },
+    {
+      "folder": "C:\\angular-app",
+      "gitUrl": "git@github.com:org/angular-app.git",
+      "branch": "main",
+      "indexName": "angular-app",
+      "enabled": true,
+      "fileTypes": [".ts", ".html", ".scss"],
+      "excludePaths": ["**/node_modules/**", "**/dist/**", "**/*.spec.ts"]
+    }
+  ]
+}
+```
+
+All per-repo fields are optional — existing `repos.json` files keep working unchanged.
+
+## AST-Aware Code Chunking
+
+Starting in **1.0.15**, code files are chunked by language structure rather than by raw character windows. This dramatically improves search relevance by ensuring each passage is a complete logical unit (a method, a property, a function) instead of a half-method that happens to start mid-line.
+
+| Language(s) | Strategy | Notes |
+|-------------|----------|-------|
+| C# (`.cs`) | **Roslyn AST** (`Microsoft.CodeAnalysis.CSharp`) | One chunk per method, constructor, property, indexer, operator, event, field, enum, delegate. Nested types and file-scoped namespaces supported. Each chunk is prefixed with a `// {namespace}.{type}.{member}` context comment so embeddings carry symbolic context. |
+| TypeScript, JavaScript, Java, C/C++, Go, Rust, Kotlin, Scala, Swift, PHP | **Brace-balanced walker** | A small state machine that tracks strings, line/block comments, and template-literal interpolation (`${...}`) to split on top-level `{...}` blocks without being confused by braces inside strings. No native dependencies. |
+| Markdown, JSON, YAML, plain text, etc. | **Sliding-window character chunker** (legacy) | Unchanged from previous releases. |
+
+After chunking, **every** passage (regardless of strategy) goes through a quality filter that drops:
+
+- Trimmed length < 20 chars (e.g. lone `}` lines)
+- Punctuation ratio > 70% (e.g. `} } } } }` or `;;; ; ;;;`)
+- A run of ≥ 200 base64 characters (`[A-Za-z0-9+/]{200,}`) — strips PDF/image blobs accidentally embedded in source
+- An underscore run > 10 (e.g. `__________`)
+
+The filter is the reason that, after upgrading, you'll typically see fewer passages in the index than before (1-3% drop is normal) — the eliminated chunks were noise that previously dominated unrelated queries.
+
+### Opting out
+
+If a Roslyn parse error or an exotic file format causes problems on your repo, fall back to the legacy chunker:
+
+```bash
+# Per-build (CLI flag)
+leann-dotnet --build-passages --docs C:\repo --no-ast
+
+# Per-repo (repos.json)
+{
+  "folder": "C:\\repo",
+  "useAst": false
+}
+```
+
+The CLI also prints which mode is active in its startup banner:
+
+```
+LEANN Passage Builder
+  ...
+  Code chunk: 512 (overlap 64)
+  AST chunk:  enabled (Roslyn for C#, brace-balanced for C-family)
+  File types: ...
+```
 
 ## Environment Variables
 
@@ -198,6 +296,15 @@ leann-mcp --rebuild --docs ~/projects/my-app --index-name my-app
 # Index multiple directories into one index
 leann-mcp --build-passages --docs ~/proj/frontend ~/proj/backend --index-name my-app
 
+# Index only specific file types (e.g. C# source only)
+leann-mcp --rebuild --docs ./my-repo --index-name my-repo \
+  --file-types .cs,.csproj,.sln,.props,.targets
+
+# Skip test projects, mocks, fixtures (gitignore-style globs)
+leann-mcp --rebuild --docs ./my-repo --index-name my-repo \
+  --file-types .cs,.csproj,.sln,.props,.targets \
+  --exclude-paths "**/Tests/**" "**/*.Tests/**" "**/Mocks/**" "**/*Test.cs" "**/*Tests.cs"
+
 # Rebuild all embeddings with smaller batches (low VRAM GPU)
 leann-mcp --build-indexes --force --batch-size 8
 
@@ -209,6 +316,9 @@ leann-mcp --build-indexes --force --max-tokens 256
 
 # Auto-watch repos for changes
 leann-mcp --watch --interval 120
+
+# One-shot full reindex of every watched repo, then keep watching incrementally
+leann-mcp --watch --force
 ```
 
 ## Tuning Guide

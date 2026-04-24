@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+﻿using CSharpFunctionalExtensions;
 using LeannMcp.Models;
 using LeannMcp.Services.Chunking;
 using Microsoft.Extensions.Hosting;
@@ -18,8 +18,11 @@ public sealed class RepoWatcherService(
     ILogger<RepoWatcherService> logger,
     string configPath,
     int intervalSeconds,
-    string indexesDir) : BackgroundService
+    string indexesDir,
+    bool forceInitialRebuild = false) : BackgroundService
 {
+    private bool _forceNextScan = forceInitialRebuild;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var configResult = RepoConfigLoader.Load(configPath);
@@ -34,8 +37,9 @@ public sealed class RepoWatcherService(
         var interval = TimeSpan.FromSeconds(intervalSeconds > 0 ? intervalSeconds : config.IntervalSeconds);
 
         logger.LogInformation(
-            "LEANN Repo Watcher started — monitoring {Count} repos every {Interval}s",
-            enabledRepos.Count, interval.TotalSeconds);
+            "LEANN Repo Watcher started — monitoring {Count} repos every {Interval}s{Force}",
+            enabledRepos.Count, interval.TotalSeconds,
+            _forceNextScan ? " (FORCED initial rebuild)" : "");
 
         // Initial scan after a short delay
         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
@@ -43,6 +47,7 @@ public sealed class RepoWatcherService(
         while (!stoppingToken.IsCancellationRequested)
         {
             await ScanAllRepos(enabledRepos, stoppingToken);
+            _forceNextScan = false; // force only applies to the first sweep
 
             logger.LogInformation("Next scan in {Interval}s (Ctrl+C to stop)", interval.TotalSeconds);
             await Task.Delay(interval, stoppingToken);
@@ -109,11 +114,16 @@ public sealed class RepoWatcherService(
         // Also check stored hash (last successful build)
         var storedHash = ReadStoredHash(repo.IndexName);
 
-        if (localHash.Value == remoteHash.Value && localHash.Value == storedHash)
+        if (!_forceNextScan
+            && localHash.Value == remoteHash.Value
+            && localHash.Value == storedHash)
         {
             logger.LogDebug("[{Index}] No changes (HEAD={Hash})", repo.IndexName, localHash.Value[..8]);
             return Result.Success(false);
         }
+
+        if (_forceNextScan)
+            logger.LogInformation("[{Index}] Forced rebuild requested", repo.IndexName);
 
         var oldHash = localHash.Value[..Math.Min(8, localHash.Value.Length)];
 
@@ -157,8 +167,13 @@ public sealed class RepoWatcherService(
 
     private Result RebuildIndex(RepoEntry repo)
     {
-        var options = new ChunkingOptions();
+        var options = BuildOptionsFor(repo);
         var indexDir = Path.Combine(indexesDir, repo.IndexName);
+
+        if (options.IncludeExtensions is not null)
+            logger.LogInformation("[{Index}] File types: {Types}", repo.IndexName, string.Join(",", options.IncludeExtensions));
+        if (options.ExcludePaths is { Count: > 0 })
+            logger.LogInformation("[{Index}] Exclude paths: {Count} pattern(s)", repo.IndexName, options.ExcludePaths.Count);
 
         // Step 1: Discover files
         var discoverResult = fileDiscovery.DiscoverFiles(repo.Folder, options);
@@ -188,6 +203,31 @@ public sealed class RepoWatcherService(
             return Result.Failure($"Embedding failed: {embedResult.Error}");
 
         return Result.Success();
+    }
+
+    private static ChunkingOptions BuildOptionsFor(RepoEntry repo)
+    {
+        IReadOnlySet<string>? extensions = null;
+        if (repo.FileTypes is { Count: > 0 })
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in repo.FileTypes)
+            {
+                var trimmed = t.Trim();
+                if (trimmed.Length == 0) continue;
+                set.Add(trimmed.StartsWith('.') ? trimmed : "." + trimmed);
+            }
+            if (set.Count > 0) extensions = set;
+        }
+
+        return new ChunkingOptions
+        {
+            IncludeExtensions = extensions,
+            ExcludePaths = repo.ExcludePaths is { Count: > 0 } ? repo.ExcludePaths : null,
+            CodeChunkSize = repo.CodeChunkSize ?? 512,
+            CodeChunkOverlap = repo.CodeChunkOverlap ?? 64,
+            UseAst = repo.UseAst ?? true,
+        };
     }
 
     private string GetHashFilePath(string indexName) =>

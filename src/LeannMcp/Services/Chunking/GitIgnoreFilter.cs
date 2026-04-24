@@ -14,8 +14,16 @@ public sealed class GitIgnoreFilter
     public void LoadFromFile(string gitignorePath, string baseDir)
     {
         if (!File.Exists(gitignorePath)) return;
+        AddPatterns(File.ReadLines(gitignorePath));
+    }
 
-        foreach (var rawLine in File.ReadLines(gitignorePath))
+    /// <summary>
+    /// Adds gitignore-style patterns from any source (e.g. CLI --exclude-paths).
+    /// Patterns support **, *, ?, leading ! for negation, and trailing / for directory-only.
+    /// </summary>
+    public void AddPatterns(IEnumerable<string> patterns)
+    {
+        foreach (var rawLine in patterns)
         {
             var line = rawLine.Trim();
             if (line.Length == 0 || line[0] == '#') continue;

@@ -1,4 +1,4 @@
-using LeannMcp.Models;
+﻿using LeannMcp.Models;
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
@@ -99,6 +99,7 @@ static async Task RunMcpServer(string[] args)
 static async Task RunWatch(string[] args)
 {
     var intervalSeconds = ParseIntArg(args, "--interval", 300);
+    var force = args.Contains("--force");
     var dataRoot = GetDataRoot();
     var configPath = ParseStringArg(args, "--repos-config")
                      ?? Path.Combine(dataRoot, ".leann", "repos.json");
@@ -110,6 +111,8 @@ static async Task RunWatch(string[] args)
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
+    builder.Services.AddSingleton<IChunkStrategy, RoslynChunker>();
+    builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
@@ -125,7 +128,8 @@ static async Task RunWatch(string[] args)
         sp.GetRequiredService<ILogger<RepoWatcherService>>(),
         configPath,
         intervalSeconds,
-        indexesDir));
+        indexesDir,
+        forceInitialRebuild: force));
 
     await builder.Build().RunAsync();
 }
@@ -144,7 +148,6 @@ static int RunBuildPassages(string[] args)
         Console.Error.WriteLine("ERROR: --build-passages requires --docs <path1> [<path2>...]");
         return 1;
     }
-
     var options = new ChunkingOptions
     {
         ChunkSize = ParseIntArg(args, "--chunk-size", 256),
@@ -152,6 +155,9 @@ static int RunBuildPassages(string[] args)
         CodeChunkSize = ParseIntArg(args, "--code-chunk-size", 512),
         CodeChunkOverlap = ParseIntArg(args, "--code-chunk-overlap", 64),
         IncludeHidden = args.Contains("--include-hidden"),
+        IncludeExtensions = ParseFileTypesArg(args),
+        ExcludePaths = ParseExcludePathsArg(args),
+        UseAst = !args.Contains("--no-ast"),
     };
 
     var dataRoot = GetDataRoot();
@@ -170,6 +176,8 @@ static int RunBuildPassages(string[] args)
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
+    builder.Services.AddSingleton<IChunkStrategy, RoslynChunker>();
+    builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
 
@@ -180,6 +188,9 @@ static int RunBuildPassages(string[] args)
     Console.Error.WriteLine($"  Doc paths:  {string.Join(", ", docPaths)}");
     Console.Error.WriteLine($"  Chunk size: {options.ChunkSize} (overlap {options.ChunkOverlap})");
     Console.Error.WriteLine($"  Code chunk: {options.CodeChunkSize} (overlap {options.CodeChunkOverlap})");
+    Console.Error.WriteLine($"  AST chunk:  {(options.UseAst ? "enabled (Roslyn for C#, brace-balanced for C-family)" : "disabled")}");
+    Console.Error.WriteLine($"  File types: {(options.IncludeExtensions is null ? "(default)" : string.Join(",", options.IncludeExtensions))}");
+    Console.Error.WriteLine($"  Excludes:   {(options.ExcludePaths is null or { Count: 0 } ? "(none)" : string.Join(",", options.ExcludePaths))}");
     Console.Error.WriteLine($"  Force:      {force}");
     Console.Error.WriteLine($"  Output:     {indexDir}");
     Console.Error.WriteLine();
@@ -293,30 +304,48 @@ static string? ParseStringArg(string[] args, string flag)
     return null;
 }
 
+static IReadOnlyList<string>? ParseExcludePathsArg(string[] args)
+{
+    var raw = ParseListArg(args, "--exclude-paths");
+    if (raw.Count == 0) return null;
+
+    var patterns = new List<string>();
+    foreach (var item in raw)
+    {
+        foreach (var part in item.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            patterns.Add(part);
+    }
+    return patterns.Count == 0 ? null : patterns;
+}
+
+static IReadOnlySet<string>? ParseFileTypesArg(string[] args)
+{
+    var raw = ParseListArg(args, "--file-types");
+    if (raw.Count == 0) return null;
+
+    var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var item in raw)
+    {
+        foreach (var part in item.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var ext = part.StartsWith('.') ? part : "." + part;
+            set.Add(ext);
+        }
+    }
+    return set.Count == 0 ? null : set;
+}
+
 static List<string> ParseListArg(string[] args, string flag)
 {
     var result = new List<string>();
     var idx = Array.IndexOf(args, flag);
     if (idx < 0) return result;
 
-    var knownFlags = new HashSet<string>
-    {
-        "--index-name", "--chunk-size", "--chunk-overlap",
-        "--code-chunk-size", "--code-chunk-overlap", "--index", "--batch-size", "--docs",
-        "--interval", "--repos-config", "--max-tokens", "--exclude"
-    };
-
+    // Read tokens after `flag` until we hit the next flag-like argument.
+    // Any token starting with "--" terminates the list (whether or not it's a known flag).
     for (var i = idx + 1; i < args.Length; i++)
     {
-        if (args[i].StartsWith("--"))
-        {
-            if (knownFlags.Contains(args[i]))
-            {
-                i++;
-                continue;
-            }
-            continue;
-        }
+        if (args[i].StartsWith("--")) break;
         result.Add(args[i]);
     }
 
@@ -353,6 +382,18 @@ static void PrintUsage()
           --code-chunk-size N           Code chunk size in chars (default: 512)
           --code-chunk-overlap N        Code chunk overlap in chars (default: 64)
           --include-hidden              Include hidden files/directories
+          --file-types EXT [EXT...]     Whitelist of file extensions to index
+                                        (e.g. .cs .csproj .sln, or comma-separated:
+                                        .cs,.csproj,.sln). Overrides built-in defaults.
+          --exclude-paths PAT [PAT...]  Gitignore-style patterns to skip (e.g.
+                                        "**/Tests/**" "**/*.Tests/**" "**/Mocks/**").
+                                        Wildcards: ** (any depth), * (segment), ? (char).
+                                        Comma-separated also accepted.
+          --no-ast                      Disable AST-aware chunking. By default, .cs files
+                                        are chunked with Roslyn (one chunk per method/
+                                        property/class) and TS/JS/Java/C-family files use
+                                        a brace-balanced chunker. With --no-ast, falls back
+                                        to the legacy line-based sliding-window chunker.
           --force                       Overwrite existing passages
 
         Index Builder Options:
@@ -369,9 +410,18 @@ static void PrintUsage()
         Watch Mode:
           --interval N           Check interval in seconds (default: 300)
           --repos-config PATH    Path to repos.json config (default: .leann/repos.json)
+          --force                Force a full rebuild on the FIRST sweep, then resume
+                                 normal change-detection on subsequent sweeps.
 
           Periodically fetches each repo, detects new commits, and auto-rebuilds
           the passage + embedding index. Uses git to track changes. Press Ctrl+C to stop.
+
+          repos.json supports per-repo filters (all optional):
+            "fileTypes":        [".cs", ".csproj", ".json"]   // whitelist of extensions
+            "excludePaths":     ["**/Tests/**", "**/bin/**"]  // gitignore-style globs
+            "codeChunkSize":    1024                           // override default 512
+            "codeChunkOverlap": 128                            // override default 64
+            "useAst":           true                           // AST chunking (default true)
 
         Setup:
           Downloads the contriever ONNX model (~418 MB) to ~/.leann/models/.

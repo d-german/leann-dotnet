@@ -238,14 +238,23 @@ public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<Ind
 
     private static void WriteEmbeddingsBin(string path, float[][] embeddings, int dimensions)
     {
-        var totalBytes = (long)embeddings.Length * dimensions * sizeof(float);
-        var bigBuffer = new byte[totalBytes];
         var rowBytes = dimensions * sizeof(float);
+        using var stream = new FileStream(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 1 << 20,
+            useAsync: false);
 
         for (var i = 0; i < embeddings.Length; i++)
-            MemoryMarshal.AsBytes(embeddings[i].AsSpan()).CopyTo(bigBuffer.AsSpan(i * rowBytes, rowBytes));
-
-        File.WriteAllBytes(path, bigBuffer);
+        {
+            var row = embeddings[i];
+            if (row.Length != dimensions)
+                throw new InvalidOperationException(
+                    $"Embedding row {i} has {row.Length} dims, expected {dimensions}.");
+            stream.Write(MemoryMarshal.AsBytes(row.AsSpan()));
+        }
     }
 
     private static void WriteEmbeddingsMeta(string path, int count, int dimensions)
