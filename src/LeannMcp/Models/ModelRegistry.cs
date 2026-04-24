@@ -12,7 +12,7 @@ public static class ModelRegistry
         new EmbeddingModelDescriptor(
             Id: JinaCodeId,
             DisplayName: "Jina Embeddings v2 Base Code",
-            DownloadUrl: "", // populated in T14 after release upload
+            DownloadUrl: "https://github.com/d-german/leann-dotnet/releases/download/model-v2-jina/jina-embeddings-v2-base-code-onnx.zip",
             ArchiveType: ArchiveType.Zip,
             OnnxFilename: "model.onnx",
             TokenizerType: TokenizerType.RobertaBpe,
@@ -20,7 +20,7 @@ public static class ModelRegistry
             Pooling: Pooling.Mean,
             MaxSequenceLength: 8192,
             License: "Apache-2.0",
-            Sha256: ""), // populated in T14
+            Sha256: "40FE6A1BFA279229F76E231520F4396300DC4B6046223E0EE9C6BB9D1F653624"),
         new EmbeddingModelDescriptor(
             Id: ContrieverId,
             DisplayName: "Facebook Contriever",
