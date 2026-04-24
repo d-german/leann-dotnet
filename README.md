@@ -27,7 +27,7 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 ```
 
 1. **Chunk** — splits source files into overlapping passages (code-aware: respects functions, classes, blocks)
-2. **Embed** — computes 768-dim vectors using facebook/contriever via ONNX Runtime (DirectML on Windows, CoreML on macOS)
+2. **Embed** — computes 768-dim vectors using **jinaai/jina-embeddings-v2-base-code** (default; code-aware, 30 programming languages, 8192 max sequence length) via ONNX Runtime (DirectML on Windows, CoreML on macOS). The legacy facebook/contriever model is still selectable with `--model facebook/contriever` or `LEANN_MODEL=facebook/contriever`.
 3. **Index** — stores embeddings in a flat vector index with L2-normalized cosine similarity
 4. **Search** — any MCP client (VS Code Copilot, Claude Desktop, etc.) queries the index via semantic search
 
@@ -43,8 +43,13 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 
 ```bash
 dotnet tool install -g LeannMcp
-leann-mcp --setup    # downloads the 418 MB ONNX model to ~/.leann/models/
+leann-mcp --setup                                  # downloads the default jina-embeddings-v2-base-code model (~282 MB zip → ~306 MB ONNX)
+# or explicitly:
+leann-mcp --setup --model jinaai/jina-embeddings-v2-base-code
+leann-mcp --setup --model facebook/contriever     # legacy 418 MB English-prose model
 ```
+
+The model is extracted to `<LEANN_DATA_ROOT>/models/<sanitized-id>/` and is idempotent (re-running `--setup` is a no-op once the SHA256 marker is present; pass `--force` to re-download).
 
 ### Option B: Build from source
 
@@ -108,7 +113,9 @@ Add to your MCP client config (e.g., `.vscode/mcp.json`):
 }
 ```
 
-`LEANN_DATA_ROOT` points to the directory containing `.leann/indexes/`. The model is loaded from `~/.leann/models/` by default (override with `LEANN_MODEL_DIR`).
+`LEANN_DATA_ROOT` points to the directory containing `.leann/indexes/` and `models/`. To switch models for an MCP session, add `"LEANN_MODEL": "facebook/contriever"` (or any registered id) to the `env` block.
+
+> **Index compatibility:** every index records the embedding model + dimensions used to build it. Loading an index that was built with a different model than the currently active one is **refused at load time** (the server logs `IndexCompatibility: refusing index ...`). Either rebuild with the new model, or set `LEANN_MODEL` back to the original.
 
 ### 5. Search
 
@@ -123,7 +130,13 @@ From your MCP client, use these tools:
 <data-root>/
 └── .leann/
     ├── models/
-    │   └── contriever-onnx/       # ONNX model + tokenizer
+    │   ├── jinaai-jina-embeddings-v2-base-code/   # default code-aware model
+    │   │   ├── model.onnx
+    │   │   ├── tokenizer.json
+    │   │   ├── vocab.json
+    │   │   ├── merges.txt
+    │   │   └── .sha256.ok                          # idempotency marker
+    │   └── facebook-contriever/                    # legacy English-prose model (optional)
     │       ├── model.onnx
     │       └── vocab.txt
     └── indexes/
@@ -148,7 +161,7 @@ From your MCP client, use these tools:
 | **Embed** | `leann-mcp --build-indexes` | Compute embeddings for passages |
 | **Full Pipeline** | `leann-mcp --rebuild` | Chunk + embed in one step |
 | **Watch** | `leann-mcp --watch` | Auto-sync git repos and rebuild on changes |
-| **Setup** | `leann-mcp --setup` | Download ONNX model (~418 MB, one-time) |
+| **Setup** | `leann-mcp --setup [--model ID] [--force]` | Download ONNX model (~282 MB jina, ~418 MB contriever; one-time per model) |
 
 ### Passage Builder Flags
 
@@ -273,8 +286,9 @@ LEANN Passage Builder
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` | Current working directory |
-| `LEANN_MODEL_DIR` | Path to the contriever-onnx model directory | `~/.leann/models/contriever-onnx` |
+| `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` and `models/` | Current working directory |
+| `LEANN_MODEL` | Active embedding model id (e.g. `jinaai/jina-embeddings-v2-base-code`, `facebook/contriever`). Equivalent to passing `--model` on the command line | `jinaai/jina-embeddings-v2-base-code` |
+| `LEANN_MODEL_DIR` | Override the model directory location (rarely needed; computed from `LEANN_DATA_ROOT` + sanitized model id by default) | `<LEANN_DATA_ROOT>/models/<sanitized-id>` |
 | `LEANN_FORCE_CPU` | Set to `1` or `true` to disable GPU acceleration | (GPU enabled) |
 
 ### GPU Acceleration
@@ -423,12 +437,20 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release LeannMcp
 
 | Problem | Solution |
 |---------|----------|
-| "No ONNX model found" | Place model at `<cwd>/.leann/models/contriever-onnx/` |
+| "No ONNX model found" | Run `leann-mcp --setup` (downloads the active model). The model directory is `<LEANN_DATA_ROOT>/models/<sanitized-model-id>/`. |
 | "Pre-computed embeddings not found" | Run `leann-mcp --build-indexes` |
+| `IndexCompatibility: refusing index ... built with <other-model>` | Either rebuild with the active model (`leann-mcp --rebuild ...`) or set `LEANN_MODEL` to the model that built the index. |
 | "DirectML not available" | Falls back to CPU automatically. Update GPU drivers. |
 | Slow first search | Call `leann_warmup` to pre-load the model |
-| Out of GPU memory | Use `--batch-size 8` or lower |
+| Out of GPU memory (4 GB VRAM) | Use `--batch-size 8` and/or `--max-tokens 256`. Set `LEANN_FORCE_CPU=1` if it still OOMs — single-query search is fast on CPU. |
 | Network drive writes slow | Already fixed — uses bulk writes. Update to latest build. |
+
+### Migrating from 1.0.x (contriever-only) to 1.0.16+ (jina default)
+
+1. `dotnet tool update -g LeannMcp`
+2. `leann-mcp --setup` (downloads jina; existing contriever model is **not** deleted).
+3. Rebuild your indexes: `leann-mcp --rebuild --docs <repo> --index-name <name>` — required because index files record the model that built them and the new compatibility guard refuses cross-model loads.
+4. Optional: keep using contriever by setting `LEANN_MODEL=facebook/contriever` (env var) or passing `--model facebook/contriever` to `--setup`/`--rebuild`.
 
 ## License
 
