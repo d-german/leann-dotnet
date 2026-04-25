@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Workspace auto-detection for MCP server mode.** A single global server
+  registration now resolves its data directory automatically — no per-project
+  `cwd` field required in `mcp.json`. Resolution priority:
+  `LEANN_DATA_ROOT` env var > MCP client `roots` (via
+  `RequestRootsAsync`) > `Directory.GetCurrentDirectory()`. The active
+  workspace is re-resolved on every tool call, and `IndexManager`'s in-memory
+  cache is invalidated when the resolved path changes (so switching VS Code
+  workspaces hot-swaps indexes without a restart). See
+  [`docs/workspace-roots-design.md`](docs/workspace-roots-design.md).
+
+### Changed
+- `mcp.json.example` no longer requires `"cwd"`. The same global entry now
+  works across every workspace.
+
 ## 1.0.16 — Jina code-aware embeddings (default model change)
 
 ### BREAKING

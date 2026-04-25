@@ -1,11 +1,18 @@
+// LEANN auto-detects the workspace via the MCP "roots" capability.
+// Register ONE global server entry — no per-project `cwd`, no env var.
+//
+// Resolution priority (MCP-server mode):
+//   1. LEANN_DATA_ROOT environment variable (explicit override)
+//   2. MCP client roots (e.g. VS Code reports the active workspace folder)
+//   3. Directory.GetCurrentDirectory() (fallback)
+//
 // Option A: dotnet tool (requires .NET 10 SDK installed)
 {
   "servers": {
     "leann-server": {
       "type": "stdio",
       "command": "leann-mcp",
-      "args": [],
-      "cwd": "Z:\\"
+      "args": []
     }
   }
 }
@@ -15,9 +22,11 @@
 //   "servers": {
 //     "leann-server": {
 //       "type": "stdio",
-//       "command": "Z:\\.leann\\bin\\leann-dotnet.exe",
-//       "args": [],
-//       "cwd": "Z:\\"
+//       "command": "C:\\path\\to\\leann-dotnet.exe",
+//       "args": []
 //     }
 //   }
 // }
+
+// Override (only needed for clients that don't advertise roots):
+// "env": { "LEANN_DATA_ROOT": "${workspaceFolder}" }

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using CSharpFunctionalExtensions;
 using LeannMcp.Models;
+using LeannMcp.Services.Workspace;
 using Microsoft.Extensions.Logging;
 
 namespace LeannMcp.Services;
@@ -17,10 +18,13 @@ public sealed class IndexManager
     private readonly EmbeddingModelDescriptor _activeDescriptor;
     private readonly ILogger<IndexManager> _logger;
     private readonly ConcurrentDictionary<string, LeannIndex> _cache = new();
-    private readonly string _indexesDir;
-
-    public string IndexesDir => _indexesDir;
+    private readonly WorkspaceResolver? _resolver;
+    private readonly string? _staticIndexesDir;
+    private string? _lastResolvedIndexesDir;
+    private readonly object _invalidationLock = new();
     private readonly int _dimensions;
+
+    public string IndexesDir => CurrentIndexesDir();
 
     public IndexManager(
         IEmbeddingService embeddingService,
@@ -31,10 +35,48 @@ public sealed class IndexManager
         _embeddingService = embeddingService;
         _activeDescriptor = activeDescriptor;
         _logger = logger;
-        _indexesDir = indexesDir ?? Path.Combine(
+        _staticIndexesDir = indexesDir ?? Path.Combine(
             Environment.GetEnvironmentVariable("LEANN_DATA_ROOT") ?? Directory.GetCurrentDirectory(),
             ".leann", "indexes");
         _dimensions = activeDescriptor.Dimensions;
+    }
+
+    /// <summary>
+    /// MCP-server-mode constructor: resolves the indexes directory per call via
+    /// <see cref="WorkspaceResolver"/> and clears the cache when it changes.
+    /// </summary>
+    public IndexManager(
+        IEmbeddingService embeddingService,
+        EmbeddingModelDescriptor activeDescriptor,
+        ILogger<IndexManager> logger,
+        WorkspaceResolver resolver)
+    {
+        _embeddingService = embeddingService;
+        _activeDescriptor = activeDescriptor;
+        _logger = logger;
+        _resolver = resolver;
+        _dimensions = activeDescriptor.Dimensions;
+    }
+
+    private string CurrentIndexesDir()
+    {
+        if (_resolver is null) return _staticIndexesDir!;
+
+        var resolved = _resolver.ResolveIndexesDir();
+        if (!string.Equals(resolved, _lastResolvedIndexesDir, StringComparison.OrdinalIgnoreCase))
+        {
+            lock (_invalidationLock)
+            {
+                if (!string.Equals(resolved, _lastResolvedIndexesDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (_lastResolvedIndexesDir is not null)
+                        _logger.LogInformation("Indexes directory changed: {Old} -> {New}; clearing cache.", _lastResolvedIndexesDir, resolved);
+                    _cache.Clear();
+                    _lastResolvedIndexesDir = resolved;
+                }
+            }
+        }
+        return resolved;
     }
 
     public Result<IReadOnlyList<SearchResult>> Search(string indexName, string query, int topK = 5, int complexity = 32)
@@ -106,7 +148,7 @@ public sealed class IndexManager
     {
         try
         {
-            var indexDir = Path.Combine(_indexesDir, indexName);
+            var indexDir = Path.Combine(CurrentIndexesDir(), indexName);
             var metaPath = Path.Combine(indexDir, "documents.leann.meta.json");
 
             if (!File.Exists(metaPath))
@@ -179,10 +221,11 @@ public sealed class IndexManager
 
     public List<string> DiscoverIndexNames()
     {
-        if (!Directory.Exists(_indexesDir))
+        var indexesDir = CurrentIndexesDir();
+        if (!Directory.Exists(indexesDir))
             return [];
 
-        return Directory.GetDirectories(_indexesDir)
+        return Directory.GetDirectories(indexesDir)
             .Where(d => File.Exists(Path.Combine(d, "documents.leann.meta.json")))
             .Select(Path.GetFileName)
             .Where(n => n is not null)

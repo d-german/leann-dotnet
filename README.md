@@ -96,6 +96,11 @@ This creates `<data-root>/.leann/indexes/my-repo/` with passages + embeddings.
 
 ### 4. Connect an MCP Client
 
+> **Workspace auto-detection (new!):** Register **once globally** — LEANN
+> auto-resolves its data directory to whatever workspace your MCP client is
+> currently in, via the MCP `roots` capability. No `cwd`, no per-project
+> `LEANN_DATA_ROOT`. See [`docs/workspace-roots-design.md`](docs/workspace-roots-design.md).
+
 Add to your MCP client config (e.g., `.vscode/mcp.json`):
 
 ```json
@@ -104,16 +109,26 @@ Add to your MCP client config (e.g., `.vscode/mcp.json`):
     "leann": {
       "type": "stdio",
       "command": "leann-mcp",
-      "args": ["--mcp"],
-      "env": {
-        "LEANN_DATA_ROOT": "/path/to/your/data"
-      }
+      "args": []
     }
   }
 }
 ```
 
-`LEANN_DATA_ROOT` points to the directory containing `.leann/indexes/` and `models/`. To switch models for an MCP session, add `"LEANN_MODEL": "facebook/contriever"` (or any registered id) to the `env` block.
+That's it — switching VS Code workspaces hot-swaps indexes without a restart.
+
+**Resolution priority** (MCP-server mode, evaluated per tool call):
+
+1. `LEANN_DATA_ROOT` env var — explicit override
+2. MCP client-advertised `roots` (e.g., VS Code workspace folder)
+3. `Directory.GetCurrentDirectory()` — fallback
+
+**Override** (only if your client doesn't advertise roots and isn't launched from
+the workspace folder):
+
+```json
+"env": { "LEANN_DATA_ROOT": "${workspaceFolder}", "LEANN_MODEL": "facebook/contriever" }
+```
 
 > **Index compatibility:** every index records the embedding model + dimensions used to build it. Loading an index that was built with a different model than the currently active one is **refused at load time** (the server logs `IndexCompatibility: refusing index ...`). Either rebuild with the new model, or set `LEANN_MODEL` back to the original.
 

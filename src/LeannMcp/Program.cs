@@ -114,7 +114,6 @@ static async Task RunMcpServer(string[] args)
     var dataRoot = GetDataRoot();
     var descriptor = GetActiveDescriptor();
     var modelsDir = GetModelDir(dataRoot, descriptor);
-    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
     builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
@@ -125,12 +124,16 @@ static async Task RunMcpServer(string[] args)
             sp.GetRequiredService<EmbeddingModelDescriptor>(),
             sp.GetServices<ITokenizerFactory>(),
             sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
+
+    // Workspace auto-detection (env > MCP roots > cwd) — see docs/workspace-roots-design.md
+    builder.Services.AddSingleton<LeannMcp.Services.Workspace.WorkspaceRootStore>();
+    builder.Services.AddSingleton<LeannMcp.Services.Workspace.WorkspaceResolver>();
     builder.Services.AddSingleton(sp =>
         new IndexManager(
             sp.GetRequiredService<IEmbeddingService>(),
             sp.GetRequiredService<EmbeddingModelDescriptor>(),
             sp.GetRequiredService<ILogger<IndexManager>>(),
-            indexesDir));
+            sp.GetRequiredService<LeannMcp.Services.Workspace.WorkspaceResolver>()));
 
     builder.Services
         .AddMcpServer()
