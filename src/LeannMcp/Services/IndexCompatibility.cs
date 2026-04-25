@@ -29,7 +29,7 @@ public static class IndexCompatibility
                 $"Index at {indexPath} was built with embedding model '{indexModel}' (dim={indexDim}) " +
                 $"but the active model is '{active.Id}' (dim={active.Dimensions}). " +
                 "Dimension mismatch indicates a corrupt index. " +
-                "Run 'leann-mcp --rebuild' to rebuild against the active model.");
+                "Run 'leann-dotnet --rebuild' to rebuild against the active model.");
         }
 
         return Result.Success();
@@ -40,5 +40,5 @@ public static class IndexCompatibility
         $"but the active model is '{active.Id}' (dim={active.Dimensions}). " +
         "Cosine similarity across different embedding spaces is meaningless. " +
         $"Either: (1) set environment variable LEANN_MODEL={indexModel} to query this index with its original model, " +
-        "or (2) run 'leann-mcp --rebuild' to rebuild against the active model.";
+        "or (2) run 'leann-dotnet --rebuild' to rebuild against the active model.";
 }

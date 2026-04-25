@@ -43,7 +43,7 @@
 - `RobertaBpeTokenizerFactory` (jina) and `WordPieceTokenizerFactory` (contriever) — both
   registered as `ITokenizerFactory` and selected by descriptor at runtime.
 - SHA256 verification + `.sha256.ok` idempotency marker in `ModelDownloader`. Re-running
-  `leann-mcp --setup` is a no-op once the marker exists; `--force` re-downloads.
+  `leann-dotnet --setup` is a no-op once the marker exists; `--force` re-downloads.
 - `IndexCompatibility` guard in `IndexManager` — refuses cross-model index loads with a
   clear log message.
 - Tests:
@@ -85,8 +85,8 @@ reflect content absence, not embedding quality.
 
 ```bash
 dotnet tool update -g leann-dotnet
-leann-mcp --setup                                          # downloads jina
-leann-mcp --rebuild --docs <repo> --index-name <name>     # rebuild each index
+leann-dotnet --setup                                          # downloads jina
+leann-dotnet --rebuild --docs <repo> --index-name <name>     # rebuild each index
 ```
 
 To stay on contriever:

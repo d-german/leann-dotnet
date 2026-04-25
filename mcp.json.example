@@ -11,7 +11,7 @@
   "servers": {
     "leann-server": {
       "type": "stdio",
-      "command": "leann-mcp",
+      "command": "leann-dotnet",
       "args": []
     }
   }
