@@ -67,7 +67,7 @@ reflect content absence, not embedding quality.
 ### Migration
 
 ```bash
-dotnet tool update -g LeannMcp
+dotnet tool update -g leann-dotnet
 leann-mcp --setup                                          # downloads jina
 leann-mcp --rebuild --docs <repo> --index-name <name>     # rebuild each index
 ```

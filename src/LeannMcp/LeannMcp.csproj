@@ -10,7 +10,7 @@
     <!-- NuGet / dotnet tool packaging -->
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>leann-mcp</ToolCommandName>
-    <PackageId>LeannMcp</PackageId>
+    <PackageId>leann-dotnet</PackageId>
     <Description>LEANN MCP Server — semantic code search powered by ONNX Runtime. Provides MCP tools for RAG-based code retrieval with GPU-accelerated embedding (DirectML on Windows, CoreML on macOS).</Description>
     <PackageTags>mcp;semantic-search;onnx;rag;code-search;directml;coreml</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

@@ -42,7 +42,7 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 ### Option A: Install from NuGet (recommended)
 
 ```bash
-dotnet tool install -g LeannMcp
+dotnet tool install -g leann-dotnet
 leann-mcp --setup                                  # downloads the default jina-embeddings-v2-base-code model (~282 MB zip → ~306 MB ONNX)
 # or explicitly:
 leann-mcp --setup --model jinaai/jina-embeddings-v2-base-code
@@ -65,7 +65,7 @@ dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/wi
 >
 > **Note:** When built from source the executable is named `leann-dotnet` (the `AssemblyName`).
 > All command examples in this README use `leann-mcp`, which is the command installed by
-> `dotnet tool install -g LeannMcp`. Substitute `leann-dotnet` (or the full path to your
+> `dotnet tool install -g leann-dotnet`. Substitute `leann-dotnet` (or the full path to your
 > published binary) if you are running a source build.
 
 ### Index Your Code
@@ -430,7 +430,7 @@ dotnet publish src/LeannMcp -r osx-arm64 --self-contained -c Release -o publish/
 
 # Install as dotnet tool (framework-dependent)
 dotnet pack src/LeannMcp -c Release
-dotnet tool install --global --add-source src/LeannMcp/bin/Release LeannMcp
+dotnet tool install --global --add-source src/LeannMcp/bin/Release leann-dotnet
 ```
 
 ## Troubleshooting
@@ -447,7 +447,7 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release LeannMcp
 
 ### Migrating from 1.0.x (contriever-only) to 1.0.16+ (jina default)
 
-1. `dotnet tool update -g LeannMcp`
+1. `dotnet tool update -g leann-dotnet`
 2. `leann-mcp --setup` (downloads jina; existing contriever model is **not** deleted).
 3. Rebuild your indexes: `leann-mcp --rebuild --docs <repo> --index-name <name>` — required because index files record the model that built them and the new compatibility guard refuses cross-model loads.
 4. Optional: keep using contriever by setting `LEANN_MODEL=facebook/contriever` (env var) or passing `--model facebook/contriever` to `--setup`/`--rebuild`.
