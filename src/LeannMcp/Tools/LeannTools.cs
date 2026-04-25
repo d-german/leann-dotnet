@@ -1,12 +1,13 @@
 using System.ComponentModel;
 using System.Text;
 using LeannMcp.Services;
+using LeannMcp.Services.Workspace;
 using ModelContextProtocol.Server;
 
 namespace LeannMcp.Tools;
 
 [McpServerToolType]
-public sealed class LeannTools(IndexManager indexManager)
+public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver resolver)
 {
     [McpServerTool(Name = "leann_search"), Description(
         """
@@ -21,7 +22,8 @@ public sealed class LeannTools(IndexManager indexManager)
 
         💡 **Pro tip**: Use this before making any changes to understand existing patterns and conventions.
         """)]
-    public string Search(
+    public async Task<string> Search(
+        McpServer server,
         [Description("Name of the LEANN index to search. Use 'leann_list' first to see available indexes.")]
         string index_name,
         [Description("Search query - can be natural language (e.g., 'how to handle errors') or technical terms (e.g., 'async function definition')")]
@@ -31,8 +33,10 @@ public sealed class LeannTools(IndexManager indexManager)
         [Description("Search complexity level. Use 16-32 for fast searches (recommended), 64+ for higher precision when needed.")]
         int complexity = 32,
         [Description("Include file paths and metadata in search results. Useful for understanding which files contain the results.")]
-        bool show_metadata = false)
+        bool show_metadata = false,
+        CancellationToken cancellationToken = default)
     {
+        await resolver.EnsureResolvedAsync(server, cancellationToken);
         var result = indexManager.Search(index_name, query, top_k, complexity);
         if (result.IsFailure)
             return $"Error: {result.Error}";
@@ -42,8 +46,9 @@ public sealed class LeannTools(IndexManager indexManager)
 
     [McpServerTool(Name = "leann_list"), Description(
         "📋 Show all your indexed codebases - your personal code library! Use this to see what's available for search.")]
-    public string List()
+    public async Task<string> List(McpServer server, CancellationToken cancellationToken = default)
     {
+        await resolver.EnsureResolvedAsync(server, cancellationToken);
         var result = indexManager.ListIndexes();
         if (result.IsFailure)
             return $"Error: {result.Error}";
@@ -55,8 +60,9 @@ public sealed class LeannTools(IndexManager indexManager)
 
     [McpServerTool(Name = "leann_warmup"), Description(
         "🚀 Pre-load the embedding model into memory. Call this FIRST before any leann_search. Takes 1-2 minutes on first call, but makes all subsequent leann_search calls complete in seconds. Returns available indexes and warmup timing.")]
-    public string Warmup()
+    public async Task<string> Warmup(McpServer server, CancellationToken cancellationToken = default)
     {
+        await resolver.EnsureResolvedAsync(server, cancellationToken);
         var result = indexManager.Warmup();
         return result.IsFailure ? $"Error: {result.Error}" : result.Value;
     }

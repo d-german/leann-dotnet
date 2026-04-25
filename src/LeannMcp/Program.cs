@@ -1,4 +1,4 @@
-﻿using LeannMcp.Models;
+using LeannMcp.Models;
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
@@ -114,7 +114,6 @@ static async Task RunMcpServer(string[] args)
     var dataRoot = GetDataRoot();
     var descriptor = GetActiveDescriptor();
     var modelsDir = GetModelDir(dataRoot, descriptor);
-    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
     builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
@@ -125,12 +124,16 @@ static async Task RunMcpServer(string[] args)
             sp.GetRequiredService<EmbeddingModelDescriptor>(),
             sp.GetServices<ITokenizerFactory>(),
             sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
+
+    // Workspace auto-detection (env > MCP roots > cwd) — see docs/workspace-roots-design.md
+    builder.Services.AddSingleton<LeannMcp.Services.Workspace.WorkspaceRootStore>();
+    builder.Services.AddSingleton<LeannMcp.Services.Workspace.WorkspaceResolver>();
     builder.Services.AddSingleton(sp =>
         new IndexManager(
             sp.GetRequiredService<IEmbeddingService>(),
             sp.GetRequiredService<EmbeddingModelDescriptor>(),
             sp.GetRequiredService<ILogger<IndexManager>>(),
-            indexesDir));
+            sp.GetRequiredService<LeannMcp.Services.Workspace.WorkspaceResolver>()));
 
     builder.Services
         .AddMcpServer()
@@ -442,13 +445,13 @@ static void PrintUsage()
         LEANN .NET MCP Server -- Chunk, Embed & Search
 
         Usage:
-          leann-mcp                                 Start MCP server (default)
-          leann-mcp --build-passages [options]       Chunk source repos into passages
-          leann-mcp --build-indexes [options]        Compute passage embeddings
-          leann-mcp --rebuild [options]              Chain: build-passages then build-indexes
-          leann-mcp --watch [options]                Auto-sync repos and rebuild on changes
-          leann-mcp --setup [--model ID] [--force]   Download ONNX model (run once after install)
-          leann-mcp --help                           Show this help
+          leann-dotnet                                 Start MCP server (default)
+          leann-dotnet --build-passages [options]       Chunk source repos into passages
+          leann-dotnet --build-indexes [options]        Compute passage embeddings
+          leann-dotnet --rebuild [options]              Chain: build-passages then build-indexes
+          leann-dotnet --watch [options]                Auto-sync repos and rebuild on changes
+          leann-dotnet --setup [--model ID] [--force]   Download ONNX model (run once after install)
+          leann-dotnet --help                           Show this help
 
         Passage Builder Options:
           --docs <path1> [<path2>...]   Source directories to chunk (required)
@@ -501,7 +504,7 @@ static void PrintUsage()
 
         Setup:
           Downloads the selected ONNX model to ~/.leann/models/.
-          Required once after install: leann-mcp --setup
+          Required once after install: leann-dotnet --setup
           Override the model with --model <id> (see ModelRegistry for valid ids).
           Use --force to re-download even if a verified model is already present.
 

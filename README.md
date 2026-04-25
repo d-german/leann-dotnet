@@ -43,10 +43,10 @@ Source Code → Chunk → Embed (GPU) → Index → MCP Search
 
 ```bash
 dotnet tool install -g leann-dotnet
-leann-mcp --setup                                  # downloads the default jina-embeddings-v2-base-code model (~282 MB zip → ~306 MB ONNX)
+leann-dotnet --setup                                  # downloads the default jina-embeddings-v2-base-code model (~282 MB zip → ~306 MB ONNX)
 # or explicitly:
-leann-mcp --setup --model jinaai/jina-embeddings-v2-base-code
-leann-mcp --setup --model facebook/contriever     # legacy 418 MB English-prose model
+leann-dotnet --setup --model jinaai/jina-embeddings-v2-base-code
+leann-dotnet --setup --model facebook/contriever     # legacy 418 MB English-prose model
 ```
 
 The model is extracted to `<LEANN_DATA_ROOT>/models/<sanitized-id>/` and is idempotent (re-running `--setup` is a no-op once the SHA256 marker is present; pass `--force` to re-download).
@@ -63,10 +63,7 @@ dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/wi
 
 > **Forgot `git lfs install`?** Run `git lfs pull` to download `model.onnx`.
 >
-> **Note:** When built from source the executable is named `leann-dotnet` (the `AssemblyName`).
-> All command examples in this README use `leann-mcp`, which is the command installed by
-> `dotnet tool install -g leann-dotnet`. Substitute `leann-dotnet` (or the full path to your
-> published binary) if you are running a source build.
+> **Note:** `leann-dotnet` is both the NuGet package id and the installed command name. After `dotnet tool install -g leann-dotnet` the `leann-dotnet` executable is on your `PATH` and is what every example below invokes.
 
 ### Index Your Code
 
@@ -74,16 +71,16 @@ dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/wi
 cd <data-root>
 
 # Step 1: Chunk source code into passages
-leann-mcp --build-passages --docs /path/to/my-repo --index-name my-repo
+leann-dotnet --build-passages --docs /path/to/my-repo --index-name my-repo
 
 # Step 2: Compute embeddings (GPU-accelerated)
-leann-mcp --build-indexes --index my-repo
+leann-dotnet --build-indexes --index my-repo
 
 # Or do both in one command:
-leann-mcp --rebuild --docs /path/to/my-repo --index-name my-repo
+leann-dotnet --rebuild --docs /path/to/my-repo --index-name my-repo
 
 # Restrict to specific file types (whitelist; comma- or space-separated):
-leann-mcp --rebuild --docs /path/to/my-repo --index-name my-repo \
+leann-dotnet --rebuild --docs /path/to/my-repo --index-name my-repo \
   --file-types .cs,.csproj,.sln,.props,.targets
 ```
 
@@ -96,6 +93,11 @@ This creates `<data-root>/.leann/indexes/my-repo/` with passages + embeddings.
 
 ### 4. Connect an MCP Client
 
+> **Workspace auto-detection (new!):** Register **once globally** — LEANN
+> auto-resolves its data directory to whatever workspace your MCP client is
+> currently in, via the MCP `roots` capability. No `cwd`, no per-project
+> `LEANN_DATA_ROOT`. See [`docs/workspace-roots-design.md`](docs/workspace-roots-design.md).
+
 Add to your MCP client config (e.g., `.vscode/mcp.json`):
 
 ```json
@@ -103,17 +105,27 @@ Add to your MCP client config (e.g., `.vscode/mcp.json`):
   "servers": {
     "leann": {
       "type": "stdio",
-      "command": "leann-mcp",
-      "args": ["--mcp"],
-      "env": {
-        "LEANN_DATA_ROOT": "/path/to/your/data"
-      }
+      "command": "leann-dotnet",
+      "args": []
     }
   }
 }
 ```
 
-`LEANN_DATA_ROOT` points to the directory containing `.leann/indexes/` and `models/`. To switch models for an MCP session, add `"LEANN_MODEL": "facebook/contriever"` (or any registered id) to the `env` block.
+That's it — switching VS Code workspaces hot-swaps indexes without a restart.
+
+**Resolution priority** (MCP-server mode, evaluated per tool call):
+
+1. `LEANN_DATA_ROOT` env var — explicit override
+2. MCP client-advertised `roots` (e.g., VS Code workspace folder)
+3. `Directory.GetCurrentDirectory()` — fallback
+
+**Override** (only if your client doesn't advertise roots and isn't launched from
+the workspace folder):
+
+```json
+"env": { "LEANN_DATA_ROOT": "${workspaceFolder}", "LEANN_MODEL": "facebook/contriever" }
+```
 
 > **Index compatibility:** every index records the embedding model + dimensions used to build it. Loading an index that was built with a different model than the currently active one is **refused at load time** (the server logs `IndexCompatibility: refusing index ...`). Either rebuild with the new model, or set `LEANN_MODEL` back to the original.
 
@@ -156,12 +168,12 @@ From your MCP client, use these tools:
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **MCP Server** | `leann-mcp` | Default. Starts MCP server on stdio |
-| **Chunk** | `leann-mcp --build-passages` | Split source files into passages |
-| **Embed** | `leann-mcp --build-indexes` | Compute embeddings for passages |
-| **Full Pipeline** | `leann-mcp --rebuild` | Chunk + embed in one step |
-| **Watch** | `leann-mcp --watch` | Auto-sync git repos and rebuild on changes |
-| **Setup** | `leann-mcp --setup [--model ID] [--force]` | Download ONNX model (~282 MB jina, ~418 MB contriever; one-time per model) |
+| **MCP Server** | `leann-dotnet` | Default. Starts MCP server on stdio |
+| **Chunk** | `leann-dotnet --build-passages` | Split source files into passages |
+| **Embed** | `leann-dotnet --build-indexes` | Compute embeddings for passages |
+| **Full Pipeline** | `leann-dotnet --rebuild` | Chunk + embed in one step |
+| **Watch** | `leann-dotnet --watch` | Auto-sync git repos and rebuild on changes |
+| **Setup** | `leann-dotnet --setup [--model ID] [--force]` | Download ONNX model (~282 MB jina, ~418 MB contriever; one-time per model) |
 
 ### Passage Builder Flags
 
@@ -305,34 +317,34 @@ you can set `LEANN_FORCE_CPU=1` to free your GPU — single query embedding is f
 
 ```bash
 # Index a single repo
-leann-mcp --rebuild --docs ~/projects/my-app --index-name my-app
+leann-dotnet --rebuild --docs ~/projects/my-app --index-name my-app
 
 # Index multiple directories into one index
-leann-mcp --build-passages --docs ~/proj/frontend ~/proj/backend --index-name my-app
+leann-dotnet --build-passages --docs ~/proj/frontend ~/proj/backend --index-name my-app
 
 # Index only specific file types (e.g. C# source only)
-leann-mcp --rebuild --docs ./my-repo --index-name my-repo \
+leann-dotnet --rebuild --docs ./my-repo --index-name my-repo \
   --file-types .cs,.csproj,.sln,.props,.targets
 
 # Skip test projects, mocks, fixtures (gitignore-style globs)
-leann-mcp --rebuild --docs ./my-repo --index-name my-repo \
+leann-dotnet --rebuild --docs ./my-repo --index-name my-repo \
   --file-types .cs,.csproj,.sln,.props,.targets \
   --exclude-paths "**/Tests/**" "**/*.Tests/**" "**/Mocks/**" "**/*Test.cs" "**/*Tests.cs"
 
 # Rebuild all embeddings with smaller batches (low VRAM GPU)
-leann-mcp --build-indexes --force --batch-size 8
+leann-dotnet --build-indexes --force --batch-size 8
 
 # Rebuild everything except one large index
-leann-mcp --build-indexes --exclude large-mono-repo
+leann-dotnet --build-indexes --exclude large-mono-repo
 
 # Use shorter token sequences for faster indexing (slight quality trade-off)
-leann-mcp --build-indexes --force --max-tokens 256
+leann-dotnet --build-indexes --force --max-tokens 256
 
 # Auto-watch repos for changes
-leann-mcp --watch --interval 120
+leann-dotnet --watch --interval 120
 
 # One-shot full reindex of every watched repo, then keep watching incrementally
-leann-mcp --watch --force
+leann-dotnet --watch --force
 ```
 
 ## Tuning Guide
@@ -371,10 +383,10 @@ Batch size determines how many passages are embedded simultaneously. **This is w
 
 ```bash
 # RTX 3500 Ada (12 GB) — crank up the batch size
-leann-mcp --rebuild --docs ./my-repo --index-name my-repo --batch-size 128
+leann-dotnet --rebuild --docs ./my-repo --index-name my-repo --batch-size 128
 
 # Low-VRAM GPU or integrated graphics
-leann-mcp --rebuild --docs ./my-repo --index-name my-repo --batch-size 8
+leann-dotnet --rebuild --docs ./my-repo --index-name my-repo --batch-size 8
 ```
 
 ### Max Tokens (speed vs. context)
@@ -384,10 +396,10 @@ The contriever model processes up to 512 tokens per passage. Lowering this speed
 
 ```bash
 # Faster indexing, slight quality trade-off on long passages
-leann-mcp --build-indexes --max-tokens 256
+leann-dotnet --build-indexes --max-tokens 256
 
 # Full context (default)
-leann-mcp --build-indexes --max-tokens 512
+leann-dotnet --build-indexes --max-tokens 512
 ```
 ## Performance
 
@@ -437,9 +449,9 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release leann-dotnet
 
 | Problem | Solution |
 |---------|----------|
-| "No ONNX model found" | Run `leann-mcp --setup` (downloads the active model). The model directory is `<LEANN_DATA_ROOT>/models/<sanitized-model-id>/`. |
-| "Pre-computed embeddings not found" | Run `leann-mcp --build-indexes` |
-| `IndexCompatibility: refusing index ... built with <other-model>` | Either rebuild with the active model (`leann-mcp --rebuild ...`) or set `LEANN_MODEL` to the model that built the index. |
+| "No ONNX model found" | Run `leann-dotnet --setup` (downloads the active model). The model directory is `<LEANN_DATA_ROOT>/models/<sanitized-model-id>/`. |
+| "Pre-computed embeddings not found" | Run `leann-dotnet --build-indexes` |
+| `IndexCompatibility: refusing index ... built with <other-model>` | Either rebuild with the active model (`leann-dotnet --rebuild ...`) or set `LEANN_MODEL` to the model that built the index. |
 | "DirectML not available" | Falls back to CPU automatically. Update GPU drivers. |
 | Slow first search | Call `leann_warmup` to pre-load the model |
 | Out of GPU memory (4 GB VRAM) | Use `--batch-size 8` and/or `--max-tokens 256`. Set `LEANN_FORCE_CPU=1` if it still OOMs — single-query search is fast on CPU. |
@@ -448,8 +460,8 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release leann-dotnet
 ### Migrating from 1.0.x (contriever-only) to 1.0.16+ (jina default)
 
 1. `dotnet tool update -g leann-dotnet`
-2. `leann-mcp --setup` (downloads jina; existing contriever model is **not** deleted).
-3. Rebuild your indexes: `leann-mcp --rebuild --docs <repo> --index-name <name>` — required because index files record the model that built them and the new compatibility guard refuses cross-model loads.
+2. `leann-dotnet --setup` (downloads jina; existing contriever model is **not** deleted).
+3. Rebuild your indexes: `leann-dotnet --rebuild --docs <repo> --index-name <name>` — required because index files record the model that built them and the new compatibility guard refuses cross-model loads.
 4. Optional: keep using contriever by setting `LEANN_MODEL=facebook/contriever` (env var) or passing `--model facebook/contriever` to `--setup`/`--rebuild`.
 
 ## License
