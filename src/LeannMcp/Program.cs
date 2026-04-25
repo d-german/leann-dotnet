@@ -427,13 +427,13 @@ static EmbeddingModelDescriptor GetActiveDescriptor()
     var maybe = ModelRegistry.GetById(id);
     return maybe.GetValueOrDefault(ModelRegistry.Default);
 }
-
 static string GetModelDir(string dataRoot, EmbeddingModelDescriptor descriptor)
 {
     var legacy = Environment.GetEnvironmentVariable("LEANN_MODEL_DIR");
     if (!string.IsNullOrWhiteSpace(legacy)) return legacy;
     var safeId = descriptor.Id.Replace('/', '-').Replace('\\', '-');
-    return Path.Combine(dataRoot, "models", safeId);
+    var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    return Path.Combine(userProfile, ".leann", "models", safeId);
 }
 
 static void PrintUsage()
