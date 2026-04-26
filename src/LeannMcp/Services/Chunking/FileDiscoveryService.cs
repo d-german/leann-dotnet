@@ -118,6 +118,7 @@ public sealed class FileDiscoveryService(
             Content = readResult.Value,
             FilePath = relativePath,
             FileName = Path.GetFileName(filePath),
+            AbsolutePath = Path.GetFullPath(filePath),
             CreationDate = fileInfo.CreationTimeUtc,
             LastModifiedDate = fileInfo.LastWriteTimeUtc,
             IsCode = language is not null,

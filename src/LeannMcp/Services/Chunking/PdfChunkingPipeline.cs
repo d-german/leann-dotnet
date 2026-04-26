@@ -37,9 +37,10 @@ public sealed class PdfChunkingPipeline(
         ChunkingOptions options,
         int firstPassageId)
     {
-        return structuredReader.ReadStructured(document.FilePath)
+        var path = document.AbsolutePath ?? document.FilePath;
+        return structuredReader.ReadStructured(path)
             .Map(pages => HeaderFooterStripper.Strip(pages, options.PdfBoilerplateRepeatRatio))
-            .Bind(stripped => DetectHeadings(document.FilePath, options)
+            .Bind(stripped => DetectHeadings(path, options)
                 .Map(headings => (Pages: stripped, Headings: headings)))
             .Map(state => BuildPassages(document, options, state.Pages, state.Headings, firstPassageId))
             .TapError(err => logger.LogWarning("PDF chunk skipped: {Path}: {Err}", document.FilePath, err));

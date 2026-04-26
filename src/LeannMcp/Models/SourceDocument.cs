@@ -8,6 +8,13 @@ public sealed record SourceDocument
     public required string Content { get; init; }
     public required string FilePath { get; init; }
     public required string FileName { get; init; }
+    /// <summary>
+    /// Absolute path on disk. Set by <see cref="Services.Chunking.FileDiscoveryService"/>;
+    /// readers/pipelines that need to re-open the file (e.g. PDF) must use this
+    /// instead of <see cref="FilePath"/> which is the relative-to-root form used
+    /// for search-result metadata.
+    /// </summary>
+    public string? AbsolutePath { get; init; }
     public DateTime? CreationDate { get; init; }
     public DateTime? LastModifiedDate { get; init; }
     public bool IsCode { get; init; }
