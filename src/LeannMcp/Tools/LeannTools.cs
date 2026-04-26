@@ -92,7 +92,7 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
                     sb.AppendLine($"   Modified: {lm}");
             }
 
-            var textPreview = r.Text.Length > 200 ? r.Text[..200] + "..." : r.Text;
+            var textPreview = SnippetTruncator.Truncate(r.Text);
             sb.AppendLine($"   {textPreview}");
 
             if (r.Metadata is not null && r.Metadata.TryGetValue("source", out var src))
