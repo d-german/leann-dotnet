@@ -221,6 +221,10 @@ static int RunBuildPassages(string[] args)
         ChunkOverlap = ParseIntArg(args, "--chunk-overlap", 128),
         CodeChunkSize = ParseIntArg(args, "--code-chunk-size", 512),
         CodeChunkOverlap = ParseIntArg(args, "--code-chunk-overlap", 64),
+        PdfChunkSize = ParseIntArg(args, "--pdf-chunk-size", 1600),
+        PdfChunkOverlap = ParseIntArg(args, "--pdf-chunk-overlap", 200),
+        PdfBoilerplateRepeatRatio = ParseDoubleArg(args, "--pdf-boilerplate-ratio", 0.30),
+        PdfMinHeadingFontRatio = ParseDoubleArg(args, "--pdf-heading-font-ratio", 1.3),
         IncludeHidden = args.Contains("--include-hidden"),
         IncludeExtensions = ParseFileTypesArg(args),
         ExcludePaths = ParseExcludePathsArg(args),
@@ -378,6 +382,16 @@ static int ParseIntArg(string[] args, string flag, int defaultValue)
     return defaultValue;
 }
 
+static double ParseDoubleArg(string[] args, string flag, double defaultValue)
+{
+    var idx = Array.IndexOf(args, flag);
+    if (idx >= 0 && idx + 1 < args.Length &&
+        double.TryParse(args[idx + 1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var value))
+        return value;
+    return defaultValue;
+}
+
 static string? ParseStringArg(string[] args, string flag)
 {
     var idx = Array.IndexOf(args, flag);
@@ -475,6 +489,14 @@ static void PrintUsage()
           --chunk-overlap N             Text chunk overlap in chars (default: 128)
           --code-chunk-size N           Code chunk size in chars (default: 512)
           --code-chunk-overlap N        Code chunk overlap in chars (default: 64)
+          --pdf-chunk-size N            PDF prose chunk size in chars (default: 1600)
+          --pdf-chunk-overlap N         PDF chunk overlap in chars (default: 200, ~12%)
+          --pdf-boilerplate-ratio R     Header/footer detection threshold 0..1
+                                        (default: 0.30 — strip lines repeating
+                                        on >=30% of pages)
+          --pdf-heading-font-ratio R    Min font-size multiplier vs body for
+                                        a line to be classified as a heading
+                                        (default: 1.3)
           --include-hidden              Include hidden files/directories
           --file-types EXT [EXT...]     Whitelist of file extensions to index
                                         (e.g. .cs .csproj .sln, or comma-separated:
