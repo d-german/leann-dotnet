@@ -1,5 +1,46 @@
 # Changelog
 
+## [2.5.5] — 2026-04-26
+
+### Fixed
+- **Mixed-model rebuild corruption** — `--build-indexes` now embeds each
+  index with the model recorded in its manifest via the new
+  `IEmbeddingServiceFactory` injection into `IndexBuilder`. Previously
+  the active descriptor was used for every index regardless of manifest,
+  silently overwriting embeddings in mixed-model workspaces (the
+  dimension-only integrity check could not detect 768-vs-768 collisions).
+- **`IndexCompatibility`** now also validates `model_id` in
+  `documents.embeddings.meta.json` against the resolved descriptor,
+  closing the same-dimension loophole.
+- **`.gitignore` scoping** — `GitIgnoreFilter.LoadFromFile` now uses
+  `baseDir` to anchor patterns to each `.gitignore` file's directory
+  instead of rewriting bare patterns as `**/pattern` globally.
+  `FileDiscoveryService.LoadGitIgnoreRecursive` now genuinely recurses
+  past depth 1.
+- **Concurrent ONNX session leak** — `OnnxEmbeddingServiceFactory.GetOrCreate`
+  uses a per-model lock with double-checked TryGetValue so two simultaneous
+  first-load requests no longer construct (and silently discard) duplicate
+  sessions.
+- **Stale `ids.txt` no longer becomes empty embeddings** — `IndexBuilder`
+  now fails fast on count mismatches, duplicate IDs, or IDs missing from
+  the passage store, instead of writing zero-vectors for `""`.
+- **`complexity` MCP parameter** is now actually applied: it flows through
+  `IndexManager.Search` → `ComputeFetchK` as
+  `clamp(complexity, topK, 1000)` and sets the candidate depth used
+  before BM25 fusion and de-duplication.
+- `scripts/install-local.ps1` verifies `leann-dotnet --help` instead of
+  the stale `leann-mcp --help`.
+
+### Changed
+- `Program.cs` centralizes `--model` parsing in `ResolveDescriptor` and
+  wires it through `--setup`, `--build-passages`, and `--watch`
+  (previously only `--setup` honored `--model`).
+- `RunWatch` now returns `Task<int>` so descriptor-resolution failures
+  exit non-zero.
+
+### Added
+- 7 new tests (`FileDiscoveryServiceGitIgnoreTests`, `IndexBuilderTests`,
+  embeddings-meta mismatch, concurrent factory load). Total: 140 passing.
 ## [2.4.0] — Per-index embedding model selection
 
 ### Added
