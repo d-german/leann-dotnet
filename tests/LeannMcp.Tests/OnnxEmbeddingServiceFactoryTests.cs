@@ -77,6 +77,31 @@ public sealed class OnnxEmbeddingServiceFactoryTests : IDisposable
     }
 
     [Fact]
+    public void GetOrCreate_ConcurrentSameDescriptor_CreatesOnlyOneService()
+    {
+        var d = Descriptor("test/concurrent");
+        TouchOnnx(d);
+        var created = 0;
+        var factory = new OnnxEmbeddingServiceFactory(
+            new FixedDirResolver(_tempDir),
+            NullLoggerFactory.Instance,
+            _ =>
+            {
+                Interlocked.Increment(ref created);
+                Thread.Sleep(50);
+                return Result.Success<IEmbeddingService>(new StubEmbeddingService());
+            });
+
+        var results = Enumerable.Range(0, 8)
+            .AsParallel()
+            .Select(_ => factory.GetOrCreate(d))
+            .ToArray();
+
+        Assert.All(results, r => Assert.True(r.IsSuccess, r.IsFailure ? r.Error : ""));
+        Assert.Equal(1, created);
+    }
+
+    [Fact]
     public void GetOrCreate_MissingOnnxFile_FailsWithSetupHint()
     {
         var d = Descriptor("test/missing");

@@ -37,4 +37,4 @@ dotnet tool install -g leann-dotnet --add-source $packageDir --version $Version
 if ($LASTEXITCODE -ne 0) { throw "dotnet tool install failed (exit $LASTEXITCODE)" }
 
 Write-Host "==> Installed. Verifying entry point:" -ForegroundColor Green
-leann-mcp --help | Select-Object -First 2
+leann-dotnet --help | Select-Object -First 2

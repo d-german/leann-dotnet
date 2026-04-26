@@ -56,15 +56,16 @@
   The server logs `IndexCompatibility: refusing index ...` and returns no results until you
   either rebuild the index with the active model or set `LEANN_MODEL=facebook/contriever`
   to keep using the model that originally built it.
-- The `LEANN_MODEL_DIR` default has changed. The model directory is now derived from
-  `LEANN_DATA_ROOT` + the sanitized model id (e.g.
-  `<LEANN_DATA_ROOT>/models/jinaai-jina-embeddings-v2-base-code/`) instead of the hard-coded
+- The `LEANN_MODEL_DIR` default has changed. The model directory now uses the sanitized
+  model id under `~/.leann/models/` (e.g.
+  `~/.leann/models/jinaai-jina-embeddings-v2-base-code/`) instead of the hard-coded
   `~/.leann/models/contriever-onnx/`. Set `LEANN_MODEL_DIR` explicitly only if you need to
   override this.
 
 ### Added
-- `--model <id>` flag on `--setup`, `--build-passages`, `--build-indexes`, `--rebuild`, and
-  `--watch`. Supported ids today: `jinaai/jina-embeddings-v2-base-code` (default) and
+- `--model <id>` flag on `--setup`, `--build-passages`, `--rebuild`, and `--watch`.
+  `--build-indexes` embeds each index with the model recorded in that index's manifest.
+  Supported ids today: `jinaai/jina-embeddings-v2-base-code` (default) and
   `facebook/contriever`.
 - `LEANN_MODEL` environment variable equivalent to `--model`.
 - `EmbeddingModelDescriptor` + `ModelRegistry` (`src/LeannMcp/Models/`): single source of

@@ -1,4 +1,5 @@
 ﻿using LeannMcp.Models;
+using CSharpFunctionalExtensions;
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
@@ -18,24 +19,13 @@ if (args.Contains("--help") || args.Contains("-h"))
 if (args.Contains("--setup"))
 {
     var force = args.Contains("--force");
-    var modelId = ParseStringArg(args, "--model");
-    EmbeddingModelDescriptor descriptor;
-    if (modelId is not null)
+    var descriptorResult = ResolveDescriptor(args);
+    if (descriptorResult.IsFailure)
     {
-        var maybe = ModelRegistry.GetById(modelId);
-        if (maybe.HasNoValue)
-        {
-            Console.Error.WriteLine($"Unknown model id '{modelId}'. Available ids:");
-            foreach (var m in ModelRegistry.All)
-                Console.Error.WriteLine($"  {m.Id}");
-            return 1;
-        }
-        descriptor = maybe.GetValueOrThrow();
+        Console.Error.WriteLine(descriptorResult.Error);
+        return 1;
     }
-    else
-    {
-        descriptor = GetActiveDescriptor();
-    }
+    var descriptor = descriptorResult.Value;
     var modelDir = GetModelDir(GetDataRoot(), descriptor);
     Console.Error.WriteLine("LEANN Setup");
     Console.Error.WriteLine($"  Model: {descriptor.DisplayName} ({descriptor.Id})");
@@ -98,8 +88,7 @@ if (args.Contains("--rebuild"))
 
 if (args.Contains("--watch"))
 {
-    await RunWatch(args);
-    return 0;
+    return await RunWatch(args);
 }
 
 // Default: MCP server mode
@@ -144,7 +133,7 @@ static async Task RunMcpServer(string[] args)
 
 // -- Watch Mode --
 
-static async Task RunWatch(string[] args)
+static async Task<int> RunWatch(string[] args)
 {
     var intervalSeconds = ParseIntArg(args, "--interval", 300);
     var force = args.Contains("--force");
@@ -152,13 +141,19 @@ static async Task RunWatch(string[] args)
     var configPath = ParseStringArg(args, "--repos-config")
                      ?? Path.Combine(dataRoot, ".leann", "repos.json");
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
-    var descriptor = GetActiveDescriptor();
-    var modelsDir = GetModelDir(dataRoot, descriptor);
+    var descriptorResult = ResolveDescriptor(args);
+    if (descriptorResult.IsFailure)
+    {
+        Console.Error.WriteLine($"ERROR: {descriptorResult.Error}");
+        return 1;
+    }
+    var descriptor = descriptorResult.Value;
 
     var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
+    builder.Services.AddSingleton<IModelPathResolver, DefaultModelPathResolver>();
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
@@ -175,12 +170,7 @@ static async Task RunWatch(string[] args)
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
     builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
     builder.Services.AddSingleton<ITokenizerFactory, RobertaBpeTokenizerFactory>();
-    builder.Services.AddSingleton<IEmbeddingService>(sp =>
-        new OnnxEmbeddingService(
-            modelsDir,
-            sp.GetRequiredService<EmbeddingModelDescriptor>(),
-            sp.GetServices<ITokenizerFactory>(),
-            sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
+    builder.Services.AddSingleton<IEmbeddingServiceFactory, OnnxEmbeddingServiceFactory>();
     builder.Services.AddSingleton<IndexBuilder>();
 
     builder.Services.AddHostedService(sp => new RepoWatcherService(
@@ -195,6 +185,7 @@ static async Task RunWatch(string[] args)
         forceInitialRebuild: force));
 
     await builder.Build().RunAsync();
+    return 0;
 }
 // -- Build Passages Mode --
 
@@ -204,6 +195,13 @@ static int RunBuildPassages(string[] args)
     var indexName = ParseStringArg(args, "--index-name")
                     ?? Path.GetFileName(GetDataRoot())
                     ?? "default";
+    var descriptorResult = ResolveDescriptor(args);
+    if (descriptorResult.IsFailure)
+    {
+        Console.Error.WriteLine($"ERROR: {descriptorResult.Error}");
+        return 1;
+    }
+    var descriptor = descriptorResult.Value;
 
     var docPaths = ParseListArg(args, "--docs");
     if (docPaths.Count == 0)
@@ -255,12 +253,13 @@ static int RunBuildPassages(string[] args)
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
-    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => GetActiveDescriptor());
+    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
 
     var host = builder.Build();
 
     Console.Error.WriteLine("LEANN Passage Builder");
     Console.Error.WriteLine($"  Index name: {indexName}");
+    Console.Error.WriteLine($"  Model:      {descriptor.DisplayName} ({descriptor.Id})");
     Console.Error.WriteLine($"  Doc paths:  {string.Join(", ", docPaths)}");
     Console.Error.WriteLine($"  Chunk size: {options.ChunkSize} (overlap {options.ChunkOverlap})");
     Console.Error.WriteLine($"  Code chunk: {options.CodeChunkSize} (overlap {options.CodeChunkOverlap})");
@@ -328,19 +327,16 @@ static async Task<int> RunBuildIndexes(string[] args)
     });
 
     var dataRoot = GetDataRoot();
-    var descriptor = GetActiveDescriptor();
-    var modelsDir = GetModelDir(dataRoot, descriptor);
     var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
 
-    builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
+    builder.Services.AddSingleton<IModelPathResolver, DefaultModelPathResolver>();
     builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
     builder.Services.AddSingleton<ITokenizerFactory, RobertaBpeTokenizerFactory>();
-    builder.Services.AddSingleton<IEmbeddingService>(sp =>
-        new OnnxEmbeddingService(
-            modelsDir,
-            sp.GetRequiredService<EmbeddingModelDescriptor>(),
+    builder.Services.AddSingleton<IEmbeddingServiceFactory>(sp =>
+        new OnnxEmbeddingServiceFactory(
+            sp.GetRequiredService<IModelPathResolver>(),
             sp.GetServices<ITokenizerFactory>(),
-            sp.GetRequiredService<ILogger<OnnxEmbeddingService>>(),
+            sp.GetRequiredService<ILoggerFactory>(),
             maxTokens));
     builder.Services.AddSingleton<IndexBuilder>();
 
@@ -349,7 +345,7 @@ static async Task<int> RunBuildIndexes(string[] args)
 
     Console.Error.WriteLine("LEANN Index Builder");
     Console.Error.WriteLine($"  Indexes:    {indexesDir}");
-    Console.Error.WriteLine($"  Model:      {modelsDir}");
+    Console.Error.WriteLine("  Model:      per-index manifest");
     Console.Error.WriteLine($"  Batch size: {batchSize}");
     Console.Error.WriteLine($"  Max tokens: {maxTokens}");
     Console.Error.WriteLine($"  Force:      {force}");
@@ -457,6 +453,22 @@ static EmbeddingModelDescriptor GetActiveDescriptor()
     var maybe = ModelRegistry.GetById(id);
     return maybe.GetValueOrDefault(ModelRegistry.Default);
 }
+
+static Result<EmbeddingModelDescriptor> ResolveDescriptor(string[] args)
+{
+    var modelId = ParseStringArg(args, "--model");
+    if (modelId is null)
+        return Result.Success(GetActiveDescriptor());
+
+    var maybe = ModelRegistry.GetById(modelId);
+    if (maybe.HasValue)
+        return Result.Success(maybe.GetValueOrThrow());
+
+    return Result.Failure<EmbeddingModelDescriptor>(
+        $"Unknown model id '{modelId}'. Available ids:\n" +
+        string.Join("\n", ModelRegistry.All.Select(m => $"  {m.Id}")));
+}
+
 static string GetModelDir(string dataRoot, EmbeddingModelDescriptor descriptor)
 {
     var legacy = Environment.GetEnvironmentVariable("LEANN_MODEL_DIR");
@@ -483,6 +495,8 @@ static void PrintUsage()
         Passage Builder Options:
           --docs <path1> [<path2>...]   Source directories to chunk (required)
           --index-name NAME             Index name (default: current directory name)
+          --model ID                    Embedding model id to record in the index manifest
+                                        (default: LEANN_MODEL or jinaai/jina-embeddings-v2-base-code)
           --chunk-size N                Text chunk size in chars (default: 256)
           --chunk-overlap N             Text chunk overlap in chars (default: 128)
           --code-chunk-size N           Code chunk size in chars (default: 512)
@@ -527,6 +541,7 @@ static void PrintUsage()
         Watch Mode:
           --interval N           Check interval in seconds (default: 300)
           --repos-config PATH    Path to repos.json config (default: .leann/repos.json)
+          --model ID             Embedding model id for rebuilt repo manifests
           --force                Force a full rebuild on the FIRST sweep, then resume
                                  normal change-detection on subsequent sweeps.
 
@@ -548,7 +563,8 @@ static void PrintUsage()
 
         Environment Variables:
           LEANN_DATA_ROOT    Base directory for indexes (default: cwd)
-          LEANN_MODEL_DIR    Path to contriever-onnx model dir (default: ~/.leann/models/contriever-onnx)
+          LEANN_MODEL        Default model id for setup/passages/rebuild
+          LEANN_MODEL_DIR    Override model dir (default: ~/.leann/models/<sanitized-model-id>)
           LEANN_GPU_DEVICE   DirectML GPU device index override (default: auto-detect best GPU)
           LEANN_FORCE_CPU    Set to "1" or "true" to disable GPU and use CPU only
         """);

@@ -43,4 +43,28 @@ public class IndexManagerModelGuardTests
         Assert.Contains("dim=768", result.Error);
         Assert.Contains("--rebuild", result.Error);
     }
+
+    [Fact]
+    public void EnsureManifestIntegrity_EmbeddingsMetaModelMismatch_Fails()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "leann-compat-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(dir, "documents.embeddings.meta.json"),
+                """{"count":1,"dimensions":768,"normalized":true,"model_id":"facebook/contriever"}""");
+            var meta = MakeMetadata(ModelRegistry.JinaCodeId, dimensions: 768);
+
+            var result = IndexCompatibility.EnsureManifestIntegrity(meta, Jina, dir);
+
+            Assert.True(result.IsFailure);
+            Assert.Contains("embeddings metadata", result.Error);
+            Assert.Contains("facebook/contriever", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

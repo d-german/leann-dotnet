@@ -49,7 +49,7 @@ leann-dotnet --setup --model jinaai/jina-embeddings-v2-base-code
 leann-dotnet --setup --model facebook/contriever     # legacy 418 MB English-prose model
 ```
 
-The model is extracted to `<LEANN_DATA_ROOT>/models/<sanitized-id>/` and is idempotent (re-running `--setup` is a no-op once the SHA256 marker is present; pass `--force` to re-download).
+The model is extracted to `~/.leann/models/<sanitized-id>/` and is idempotent (re-running `--setup` is a no-op once the SHA256 marker is present; pass `--force` to re-download).
 
 ### Option B: Build from source
 
@@ -158,16 +158,6 @@ From your MCP client, use these tools:
 ```
 <data-root>/
 └── .leann/
-    ├── models/
-    │   ├── jinaai-jina-embeddings-v2-base-code/   # default code-aware model
-    │   │   ├── model.onnx
-    │   │   ├── tokenizer.json
-    │   │   ├── vocab.json
-    │   │   ├── merges.txt
-    │   │   └── .sha256.ok                          # idempotency marker
-    │   └── facebook-contriever/                    # legacy English-prose model (optional)
-    │       ├── model.onnx
-    │       └── vocab.txt
     └── indexes/
         ├── my-repo/
         │   ├── documents.leann.meta.json
@@ -177,6 +167,18 @@ From your MCP client, use these tools:
         │   └── documents.embeddings.meta.json
         └── another-repo/
             └── ...
+
+~/.leann/
+└── models/
+    ├── jinaai-jina-embeddings-v2-base-code/   # default code-aware model
+    │   ├── model.onnx
+    │   ├── tokenizer.json
+    │   ├── vocab.json
+    │   ├── merges.txt
+    │   └── .sha256.ok                         # idempotency marker
+    └── facebook-contriever/                   # legacy English-prose model (optional)
+        ├── model.onnx
+        └── vocab.txt
 ```
 
 ## CLI Reference
@@ -343,9 +345,9 @@ leann-dotnet --rebuild --docs C:\projects\my-app C:\docs\architecture --index-na
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` and `models/` | Current working directory |
-| `LEANN_MODEL` | Default model id for build commands (`--build-passages`/`--build-indexes`/`--rebuild`) when no `--model` flag is given, and the model the MCP server warms up on startup. **Not** a query-time override — query routing is automatic per index. | `jinaai/jina-embeddings-v2-base-code` |
-| `LEANN_MODEL_DIR` | Override the model directory location (rarely needed; computed from `LEANN_DATA_ROOT` + sanitized model id by default) | `<LEANN_DATA_ROOT>/models/<sanitized-id>` |
+| `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` | Current working directory |
+| `LEANN_MODEL` | Default model id for setup, passage building, rebuilds, and watch-mode rebuilds when no `--model` flag is given. **Not** a query-time override — query routing is automatic per index. | `jinaai/jina-embeddings-v2-base-code` |
+| `LEANN_MODEL_DIR` | Override the model directory location (rarely needed; computed from the user profile + sanitized model id by default) | `~/.leann/models/<sanitized-id>` |
 | `LEANN_FORCE_CPU` | Set to `1` or `true` to disable GPU acceleration | (GPU enabled) |
 
 ### GPU Acceleration
@@ -494,7 +496,7 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release leann-dotnet
 
 | Problem | Solution |
 |---------|----------|
-| "No ONNX model found" | Run `leann-dotnet --setup` (downloads the active model). The model directory is `<LEANN_DATA_ROOT>/models/<sanitized-model-id>/`. |
+| "No ONNX model found" | Run `leann-dotnet --setup` (downloads the active model). The model directory is `~/.leann/models/<sanitized-model-id>/`. |
 | "Pre-computed embeddings not found" | Run `leann-dotnet --build-indexes` |
 | `IndexCompatibility: refusing index ... built with <other-model>` | (Pre-v2.4.0 only.) As of v2.4.0 the server loads the manifest's model automatically — upgrade if you still see this message. The remaining cause is a dimension mismatch, which means the index is corrupt; rebuild with `leann-dotnet --rebuild ...`. |
 | "DirectML not available" | Falls back to CPU automatically. Update GPU drivers. |

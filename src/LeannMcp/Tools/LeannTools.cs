@@ -30,7 +30,7 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
         string query,
         [Description("Number of search results to return. Use 5-10 for focused results, 15-20 for comprehensive exploration.")]
         int top_k = 5,
-        [Description("Search complexity level. Use 16-32 for fast searches (recommended), 64+ for higher precision when needed.")]
+        [Description("Candidate depth used before fusion and de-duplication. Use 16-32 for focused searches, 64+ when broad recall matters.")]
         int complexity = 32,
         [Description("Include file paths and metadata in search results. Useful for understanding which files contain the results.")]
         bool show_metadata = false,

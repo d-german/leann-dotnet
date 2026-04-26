@@ -14,14 +14,22 @@ public sealed class GitIgnoreFilter
     public void LoadFromFile(string gitignorePath, string baseDir)
     {
         if (!File.Exists(gitignorePath)) return;
-        AddPatterns(File.ReadLines(gitignorePath));
+        var ignoreDir = Path.GetDirectoryName(Path.GetFullPath(gitignorePath));
+        if (ignoreDir is null) return;
+
+        var relativeBase = Path.GetRelativePath(baseDir, ignoreDir).Replace('\\', '/');
+        if (relativeBase == ".") relativeBase = "";
+
+        AddPatterns(File.ReadLines(gitignorePath), relativeBase);
     }
 
     /// <summary>
     /// Adds gitignore-style patterns from any source (e.g. CLI --exclude-paths).
     /// Patterns support **, *, ?, leading ! for negation, and trailing / for directory-only.
     /// </summary>
-    public void AddPatterns(IEnumerable<string> patterns)
+    public void AddPatterns(IEnumerable<string> patterns) => AddPatterns(patterns, basePath: "");
+
+    private void AddPatterns(IEnumerable<string> patterns, string basePath)
     {
         foreach (var rawLine in patterns)
         {
@@ -34,12 +42,24 @@ public sealed class GitIgnoreFilter
             var isDirectoryOnly = line.EndsWith('/');
             if (isDirectoryOnly) line = line.TrimEnd('/');
 
-            // Anchor relative patterns to the base directory
-            if (!line.Contains('/') && !line.StartsWith('*'))
-                line = "**/" + line;
+            line = ScopePattern(line, basePath);
 
             _rules.Add((line, isNegation, isDirectoryOnly));
         }
+    }
+
+    private static string ScopePattern(string pattern, string basePath)
+    {
+        var rooted = pattern.StartsWith('/');
+        if (rooted) pattern = pattern.TrimStart('/');
+
+        if (string.IsNullOrEmpty(basePath))
+            return rooted || pattern.Contains('/') ? pattern : "**/" + pattern;
+
+        if (rooted || pattern.Contains('/'))
+            return basePath + "/" + pattern;
+
+        return basePath + "/**/" + pattern;
     }
 
     /// <summary>

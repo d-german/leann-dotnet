@@ -20,15 +20,18 @@ public sealed class OnnxEmbeddingServiceFactory : IEmbeddingServiceFactory
     private readonly ILogger<OnnxEmbeddingServiceFactory> _logger;
     private readonly ConcurrentDictionary<string, IEmbeddingService> _services =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, object> _modelLocks =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public OnnxEmbeddingServiceFactory(
         IModelPathResolver pathResolver,
         IEnumerable<ITokenizerFactory> tokenizerFactories,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        int maxTokens = 512)
         : this(
             pathResolver,
             loggerFactory,
-            descriptor => CreateOnnxService(pathResolver, tokenizerFactories, loggerFactory, descriptor))
+            descriptor => CreateOnnxService(pathResolver, tokenizerFactories, loggerFactory, descriptor, maxTokens))
     {
     }
 
@@ -49,9 +52,16 @@ public sealed class OnnxEmbeddingServiceFactory : IEmbeddingServiceFactory
         if (_services.TryGetValue(descriptor.Id, out var cached))
             return Result.Success(cached);
 
-        return EnsureOnnxFileExists(descriptor)
-            .Bind(_ => _serviceCreator(descriptor))
-            .Tap(svc => Insert(descriptor, svc));
+        var gate = _modelLocks.GetOrAdd(descriptor.Id, _ => new object());
+        lock (gate)
+        {
+            if (_services.TryGetValue(descriptor.Id, out cached))
+                return Result.Success(cached);
+
+            return EnsureOnnxFileExists(descriptor)
+                .Bind(_ => _serviceCreator(descriptor))
+                .Tap(svc => InsertLoaded(descriptor, svc));
+        }
     }
 
     private Result<string> EnsureOnnxFileExists(EmbeddingModelDescriptor descriptor)
@@ -69,21 +79,22 @@ public sealed class OnnxEmbeddingServiceFactory : IEmbeddingServiceFactory
         IModelPathResolver pathResolver,
         IEnumerable<ITokenizerFactory> tokenizerFactories,
         ILoggerFactory loggerFactory,
-        EmbeddingModelDescriptor descriptor)
+        EmbeddingModelDescriptor descriptor,
+        int maxTokens)
     {
         return Result.Try(
             () => (IEmbeddingService)new OnnxEmbeddingService(
                 pathResolver.GetModelDirectory(descriptor),
                 descriptor,
                 tokenizerFactories,
-                loggerFactory.CreateLogger<OnnxEmbeddingService>()),
+                loggerFactory.CreateLogger<OnnxEmbeddingService>(),
+                maxTokens),
             ex => $"Failed to construct embedding service for '{descriptor.Id}': {ex.Message}");
     }
 
-    private void Insert(EmbeddingModelDescriptor descriptor, IEmbeddingService service)
+    private void InsertLoaded(EmbeddingModelDescriptor descriptor, IEmbeddingService service)
     {
-        var added = _services.TryAdd(descriptor.Id, service);
-        if (!added) return;
+        _services[descriptor.Id] = service;
 
         _logger.LogInformation("Loaded embedding model '{Id}' ({Count} loaded).",
             descriptor.Id, _services.Count);

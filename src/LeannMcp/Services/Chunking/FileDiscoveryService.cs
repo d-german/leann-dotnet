@@ -35,7 +35,7 @@ public sealed class FileDiscoveryService(
         var supportedExtensions = options.IncludeExtensions ?? FileExtensions.AllSupported;
         var documents = new List<SourceDocument>();
 
-        LoadGitIgnoreRecursive(filter, rootFull);
+        LoadGitIgnoreRecursive(filter, rootFull, rootFull);
 
         if (options.ExcludePaths is { Count: > 0 } extra)
         {
@@ -140,19 +140,17 @@ public sealed class FileDiscoveryService(
         return _readers.OfType<PlainTextReader>().First();
     }
 
-    private static void LoadGitIgnoreRecursive(GitIgnoreFilter filter, string rootDir)
+    private static void LoadGitIgnoreRecursive(GitIgnoreFilter filter, string dir, string rootDir)
     {
-        var gitignorePath = Path.Combine(rootDir, ".gitignore");
+        var gitignorePath = Path.Combine(dir, ".gitignore");
         filter.LoadFromFile(gitignorePath, rootDir);
 
-        foreach (var subDir in EnumerateDirectoriesSafe(rootDir))
+        foreach (var subDir in EnumerateDirectoriesSafe(dir))
         {
             var dirName = Path.GetFileName(subDir);
             if (dirName.StartsWith('.')) continue;
 
-            var subGitignore = Path.Combine(subDir, ".gitignore");
-            if (File.Exists(subGitignore))
-                filter.LoadFromFile(subGitignore, rootDir);
+            LoadGitIgnoreRecursive(filter, subDir, rootDir);
         }
     }
 

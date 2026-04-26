@@ -84,9 +84,9 @@ def write_embeddings_bin(embeddings: np.ndarray, output_path: Path) -> None:
     embeddings.tofile(str(output_path))
 
 
-def write_meta(count: int, dimensions: int, output_path: Path) -> None:
+def write_meta(count: int, dimensions: int, model_id: str, output_path: Path) -> None:
     """Write embeddings metadata JSON."""
-    meta = {"count": count, "dimensions": dimensions, "normalized": True}
+    meta = {"count": count, "dimensions": dimensions, "normalized": True, "model_id": model_id}
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
@@ -103,6 +103,10 @@ def process_index(
 
     if not meta_path.exists():
         return False
+
+    with open(meta_path, encoding="utf-8") as f:
+        index_meta = json.load(f)
+    model_id = index_meta.get("embedding_model", "facebook/contriever")
 
     emb_bin = index_dir / "documents.embeddings.bin"
     emb_meta = index_dir / "documents.embeddings.meta.json"
@@ -144,7 +148,7 @@ def process_index(
     print(f"  {len(texts)} passages to embed")
 
     # Compute embeddings
-    embeddings = compute_passage_embeddings(texts, batch_size=batch_size, device=device)
+    embeddings = compute_passage_embeddings(texts, model_name=model_id, batch_size=batch_size, device=device)
 
     # L2 normalize
     embeddings = l2_normalize(embeddings)
@@ -155,7 +159,7 @@ def process_index(
 
     # Write output
     write_embeddings_bin(embeddings, emb_bin)
-    write_meta(len(texts), embeddings.shape[1], emb_meta)
+    write_meta(len(texts), embeddings.shape[1], model_id, emb_meta)
 
     expected_size = len(texts) * embeddings.shape[1] * 4
     actual_size = emb_bin.stat().st_size

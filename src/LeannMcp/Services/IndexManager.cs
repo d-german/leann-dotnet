@@ -81,7 +81,7 @@ public sealed class IndexManager
         int dedupOverFetchFactor = NearDuplicateFilter.DefaultOverFetchFactor)
     {
         return GetOrLoadIndex(indexName)
-            .Bind(index => ExecuteSearch(index, query, topK, dedupThreshold, dedupOverFetchFactor));
+            .Bind(index => ExecuteSearch(index, query, topK, complexity, dedupThreshold, dedupOverFetchFactor));
     }
 
     public Result<IReadOnlyList<string>> ListIndexes()
@@ -197,7 +197,7 @@ public sealed class IndexManager
             if (!File.Exists(embeddingsPath) || !File.Exists(idsPath))
                 return Result.Failure<LeannIndex>(
                     $"Pre-computed embeddings not found for '{indexName}'. " +
-                    "Run build-dotnet-indexes.py first.");
+                    "Run: leann-dotnet --build-indexes");
 
             var vectorIndex = new FlatVectorIndex(embeddingsPath, idsPath, descriptor.Dimensions);
             _logger.LogInformation("Loaded {Count} embeddings for '{Name}' (model: {Model}, dim: {Dim})",
@@ -218,10 +218,11 @@ public sealed class IndexManager
         LeannIndex index,
         string query,
         int topK,
+        int complexity,
         double dedupThreshold,
         int dedupOverFetchFactor)
     {
-        var fetchK = ComputeFetchK(topK, dedupThreshold, dedupOverFetchFactor);
+        var fetchK = ComputeFetchK(topK, complexity, dedupThreshold, dedupOverFetchFactor);
         return index.EmbeddingService.ComputeEmbedding(query)
             .Bind(embedding => index.VectorIndex.Search(embedding, fetchK))
             .Map(denseHits => FuseWithBm25(index.BM25, query, denseHits, fetchK))
@@ -267,11 +268,13 @@ public sealed class IndexManager
         return fused;
     }
 
-    private static int ComputeFetchK(int topK, double dedupThreshold, int overFetchFactor)
+    private static int ComputeFetchK(int topK, int complexity, double dedupThreshold, int overFetchFactor)
     {
-        if (dedupThreshold <= 0.0 || dedupThreshold >= 1.0) return topK;
+        if (topK <= 0) return 0;
+        var candidateDepth = Math.Clamp(complexity, topK, 1000);
+        if (dedupThreshold <= 0.0 || dedupThreshold >= 1.0) return candidateDepth;
         var factor = Math.Max(1, overFetchFactor);
-        return checked(topK * factor);
+        return Math.Max(candidateDepth, checked(topK * factor));
     }
 
     private static Result<IReadOnlyList<SearchResult>> EnrichResults(

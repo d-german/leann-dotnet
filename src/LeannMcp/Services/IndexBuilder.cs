@@ -13,7 +13,7 @@ namespace LeannMcp.Services;
 /// Pre-computes passage embeddings for LEANN indexes using the ONNX embedding service.
 /// Produces binary files compatible with <see cref="FlatVectorIndex"/>.
 /// </summary>
-public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<IndexBuilder> logger)
+public sealed class IndexBuilder(IEmbeddingServiceFactory embeddingServiceFactory, ILogger<IndexBuilder> logger)
 {
     private const int DefaultDimensions = 768;
 
@@ -81,34 +81,53 @@ public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<Ind
             return Result.Success(false);
         }
 
-        return LoadPassageTextsAndIds(indexDir, indexName)
-            .Bind(data => ComputeAllEmbeddings(data.Texts, data.Ids, indexName, batchSize))
-            .Bind(embeddings => NormalizeEmbeddings(embeddings, indexName))
-            .Bind(embeddings => WriteOutputFiles(embeddings, indexDir, indexName).Map(() => true));
+        return LoadIndexInput(indexDir, indexName)
+            .Bind(data => embeddingServiceFactory.GetOrCreate(data.Descriptor)
+                .Bind(service => ComputeAllEmbeddings(service, data.Texts, indexName, batchSize))
+                .Bind(embeddings => NormalizeEmbeddings(embeddings, indexName))
+                .Bind(embeddings => WriteOutputFiles(embeddings, indexDir, indexName, data.Descriptor).Map(() => true)));
     }
 
-    private Result<(string[] Texts, string[] Ids)> LoadPassageTextsAndIds(string indexDir, string indexName)
+    private Result<IndexInput> LoadIndexInput(string indexDir, string indexName)
     {
         try
         {
             var metaPath = Path.Combine(indexDir, "documents.leann.meta.json");
             if (!File.Exists(metaPath))
-                return Result.Failure<(string[], string[])>($"No meta.json in {indexDir}");
+                return Result.Failure<IndexInput>($"No meta.json in {indexDir}");
 
             var metadata = JsonSerializer.Deserialize<IndexMetadata>(File.ReadAllText(metaPath));
             if (metadata is null)
-                return Result.Failure<(string[], string[])>("Failed to parse meta.json");
+                return Result.Failure<IndexInput>("Failed to parse meta.json");
+
+            var descriptorResult = ModelRegistry.GetById(metadata.EmbeddingModel)
+                .ToResult(
+                    $"Index '{indexName}' was built with model '{metadata.EmbeddingModel}', " +
+                    "which is not registered in ModelRegistry. " +
+                    "Add it to ModelRegistry.cs and re-setup, or rebuild this index against a registered model.");
+            if (descriptorResult.IsFailure)
+                return Result.Failure<IndexInput>(descriptorResult.Error);
+            var descriptor = descriptorResult.Value;
+
+            var compatibility = IndexCompatibility.EnsureManifestIntegrity(
+                metadata,
+                descriptor,
+                indexDir,
+                validateEmbeddingsMeta: false);
+            if (compatibility.IsFailure)
+                return Result.Failure<IndexInput>(compatibility.Error);
 
             var passageSource = metadata.PassageSources.FirstOrDefault();
             if (passageSource is null)
-                return Result.Failure<(string[], string[])>("No passage sources in meta.json");
+                return Result.Failure<IndexInput>("No passage sources in meta.json");
 
             var passagePath = IndexManager.ResolvePassagePath(indexDir, passageSource);
             if (!File.Exists(passagePath))
-                return Result.Failure<(string[], string[])>($"Passage file not found: {passagePath}");
+                return Result.Failure<IndexInput>($"Passage file not found: {passagePath}");
 
             var store = new JsonlPassageStore(passagePath);
-            logger.LogInformation("[{Name}] Loaded {Count} passages", indexName, store.Count);
+            logger.LogInformation("[{Name}] Loaded {Count} passages (model: {Model})",
+                indexName, store.Count, descriptor.Id);
 
             // Load IDs from ids.txt to ensure consistent ordering
             var idsPath = Path.Combine(indexDir, "documents.ids.txt");
@@ -120,25 +139,52 @@ public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<Ind
             else
             {
                 // Fall back to passage store ordering
-                ids = Enumerable.Range(0, store.Count).Select(i => i.ToString()).ToArray();
+                ids = store.EnumerateAll().Select(p => p.Id).ToArray();
             }
 
+            if (ids.Length != store.Count)
+                return Result.Failure<IndexInput>(
+                    $"ID count mismatch in {indexName}: ids.txt has {ids.Length}, passages file has {store.Count}.");
+
+            var duplicateId = ids
+                .GroupBy(id => id, StringComparer.Ordinal)
+                .FirstOrDefault(g => g.Count() > 1)
+                ?.Key;
+            if (duplicateId is not null)
+                return Result.Failure<IndexInput>($"Duplicate passage ID in ids.txt for {indexName}: {duplicateId}");
+
             var texts = new string[ids.Length];
+            var missingIds = new List<string>();
             for (int i = 0; i < ids.Length; i++)
             {
                 var result = store.GetPassage(ids[i]);
-                texts[i] = result.IsSuccess ? result.Value.Text : "";
+                if (result.IsSuccess)
+                    texts[i] = result.Value.Text;
+                else
+                    missingIds.Add(ids[i]);
             }
 
-            return Result.Success((texts, ids));
+            if (missingIds.Count > 0)
+            {
+                var sample = string.Join(", ", missingIds.Take(5));
+                var suffix = missingIds.Count > 5 ? $" and {missingIds.Count - 5} more" : "";
+                return Result.Failure<IndexInput>(
+                    $"ids.txt references passage ID(s) missing from {indexName}: {sample}{suffix}");
+            }
+
+            return Result.Success(new IndexInput(texts, descriptor));
         }
         catch (Exception ex)
         {
-            return Result.Failure<(string[], string[])>($"Error loading passages: {ex.Message}");
+            return Result.Failure<IndexInput>($"Error loading passages: {ex.Message}");
         }
     }
 
-    private Result<float[][]> ComputeAllEmbeddings(string[] texts, string[] ids, string indexName, int batchSize)
+    private Result<float[][]> ComputeAllEmbeddings(
+        IEmbeddingService embeddingService,
+        string[] texts,
+        string indexName,
+        int batchSize)
     {
         var totalBatches = (texts.Length + batchSize - 1) / batchSize;
         var sw = Stopwatch.StartNew();
@@ -217,14 +263,22 @@ public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<Ind
         return Result.Success(embeddings);
     }
 
-    private Result WriteOutputFiles(float[][] embeddings, string indexDir, string indexName)
+    private Result WriteOutputFiles(
+        float[][] embeddings,
+        string indexDir,
+        string indexName,
+        EmbeddingModelDescriptor descriptor)
     {
         try
         {
             var dimensions = embeddings.Length > 0 ? embeddings[0].Length : DefaultDimensions;
 
             WriteEmbeddingsBin(Path.Combine(indexDir, "documents.embeddings.bin"), embeddings, dimensions);
-            WriteEmbeddingsMeta(Path.Combine(indexDir, "documents.embeddings.meta.json"), embeddings.Length, dimensions);
+            WriteEmbeddingsMeta(
+                Path.Combine(indexDir, "documents.embeddings.meta.json"),
+                embeddings.Length,
+                dimensions,
+                descriptor.Id);
 
             logger.LogInformation("[{Name}] Wrote {Count} embeddings ({Dims}d) to disk",
                 indexName, embeddings.Length, dimensions);
@@ -257,9 +311,9 @@ public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<Ind
         }
     }
 
-    private static void WriteEmbeddingsMeta(string path, int count, int dimensions)
+    private static void WriteEmbeddingsMeta(string path, int count, int dimensions, string modelId)
     {
-        var meta = new EmbeddingsMeta(count, dimensions, true);
+        var meta = new EmbeddingsMeta(count, dimensions, true, modelId);
         var json = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(path, json);
     }
@@ -276,5 +330,8 @@ public sealed class IndexBuilder(IEmbeddingService embeddingService, ILogger<Ind
     private sealed record EmbeddingsMeta(
         [property: JsonPropertyName("count")] int Count,
         [property: JsonPropertyName("dimensions")] int Dimensions,
-        [property: JsonPropertyName("normalized")] bool Normalized);
+        [property: JsonPropertyName("normalized")] bool Normalized,
+        [property: JsonPropertyName("model_id")] string ModelId);
+
+    private sealed record IndexInput(string[] Texts, EmbeddingModelDescriptor Descriptor);
 }
