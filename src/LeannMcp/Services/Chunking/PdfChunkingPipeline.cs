@@ -40,6 +40,8 @@ public sealed class PdfChunkingPipeline(
         var path = document.AbsolutePath ?? document.FilePath;
         return structuredReader.ReadStructured(path)
             .Map(pages => HeaderFooterStripper.Strip(pages, options.PdfBoilerplateRepeatRatio))
+            .Map(TocPageDetector.RemoveTocPages)
+            .Map(TitlePageDetector.RemoveTitlePage)
             .Bind(stripped => DetectHeadings(path, options)
                 .Map(headings => (Pages: stripped, Headings: headings)))
             .Map(state => BuildPassages(document, options, state.Pages, state.Headings, firstPassageId))

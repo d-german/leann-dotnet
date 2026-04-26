@@ -30,13 +30,20 @@ public class IndexManagerWorkspaceTests : IDisposable
         public void Warmup() { }
     }
 
+    private sealed class StubEmbeddingServiceFactory : IEmbeddingServiceFactory
+    {
+        private readonly IEmbeddingService _service = new StubEmbeddingService();
+        public Result<IEmbeddingService> GetOrCreate(EmbeddingModelDescriptor descriptor)
+            => Result.Success(_service);
+        public IReadOnlyCollection<string> LoadedModelIds => Array.Empty<string>();
+    }
+
     [Fact]
     public void IndexesDir_TracksResolverAcrossCalls()
     {
         var store = new WorkspaceRootStore();
         var resolver = new WorkspaceResolver(store, NullLogger<WorkspaceResolver>.Instance);
-        var descriptor = ModelRegistry.GetById(ModelRegistry.JinaCodeId).Value;
-        var manager = new IndexManager(new StubEmbeddingService(), descriptor, NullLogger<IndexManager>.Instance, resolver);
+        var manager = new IndexManager(new StubEmbeddingServiceFactory(), NullLogger<IndexManager>.Instance, resolver);
 
         store.SetListRoots(ImmutableArray.Create("C:\\workspace-a"));
         var first = manager.IndexesDir;
@@ -53,8 +60,7 @@ public class IndexManagerWorkspaceTests : IDisposable
     {
         var store = new WorkspaceRootStore();
         var resolver = new WorkspaceResolver(store, NullLogger<WorkspaceResolver>.Instance);
-        var descriptor = ModelRegistry.GetById(ModelRegistry.JinaCodeId).Value;
-        var manager = new IndexManager(new StubEmbeddingService(), descriptor, NullLogger<IndexManager>.Instance, resolver);
+        var manager = new IndexManager(new StubEmbeddingServiceFactory(), NullLogger<IndexManager>.Instance, resolver);
 
         var temp = Path.Combine(Path.GetTempPath(), "leann-mgr-" + Guid.NewGuid().ToString("N").Substring(0, 8));
         var indexDir = Path.Combine(temp, ".leann", "indexes", "myidx");
@@ -75,10 +81,8 @@ public class IndexManagerWorkspaceTests : IDisposable
     [Fact]
     public void StaticIndexesDir_StillWorks_ForCliMode()
     {
-        var descriptor = ModelRegistry.GetById(ModelRegistry.JinaCodeId).Value;
         var manager = new IndexManager(
-            new StubEmbeddingService(),
-            descriptor,
+            new StubEmbeddingServiceFactory(),
             NullLogger<IndexManager>.Instance,
             indexesDir: "C:\\static\\indexes");
         Assert.Equal("C:\\static\\indexes", manager.IndexesDir);

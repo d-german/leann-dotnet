@@ -124,10 +124,27 @@ That's it — switching VS Code workspaces hot-swaps indexes without a restart.
 the workspace folder):
 
 ```json
-"env": { "LEANN_DATA_ROOT": "${workspaceFolder}", "LEANN_MODEL": "facebook/contriever" }
+"env": { "LEANN_DATA_ROOT": "${workspaceFolder}" }
 ```
 
-> **Index compatibility:** every index records the embedding model + dimensions used to build it. Loading an index that was built with a different model than the currently active one is **refused at load time** (the server logs `IndexCompatibility: refusing index ...`). Either rebuild with the new model, or set `LEANN_MODEL` back to the original.
+`LEANN_MODEL` is **only** needed to change the default model used when *building* indexes or to pick which model the server warms up at startup. At query time, the server automatically loads each index's own embedding model from its manifest — you can mix models freely in one workspace.
+
+> **Index compatibility:** every index records the embedding model + dimensions used to build it. The server reads the manifest at load time and uses the matching model to embed queries. Cross-model querying that previously errored out (`IndexCompatibility: refusing index ...`) now Just Works as of v2.4.0.
+
+### Mixing models in one workspace
+
+Code repositories generally retrieve better with `jinaai/jina-embeddings-v2-base-code`; PDF manuals and prose retrieve better with `facebook/contriever`. You can build both kinds of index side-by-side and query them all from one MCP session:
+
+```powershell
+# Build a code index with the default Jina model
+leann-dotnet --rebuild --docs C:\repos\my-app --index-name my-app
+
+# Build a PDF index with Contriever (text-domain model)
+leann-dotnet --rebuild --docs C:\docs\manuals --index-name manuals `
+  --model facebook/contriever --file-types .pdf
+```
+
+Both indexes are now queryable from a single MCP server — `leann_search index_name="my-app"` uses Jina, `leann_search index_name="manuals"` uses Contriever, no restart and no `LEANN_MODEL` change needed.
 
 ### 5. Search
 
@@ -327,7 +344,7 @@ leann-dotnet --rebuild --docs C:\projects\my-app C:\docs\architecture --index-na
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` and `models/` | Current working directory |
-| `LEANN_MODEL` | Active embedding model id (e.g. `jinaai/jina-embeddings-v2-base-code`, `facebook/contriever`). Equivalent to passing `--model` on the command line | `jinaai/jina-embeddings-v2-base-code` |
+| `LEANN_MODEL` | Default model id for build commands (`--build-passages`/`--build-indexes`/`--rebuild`) when no `--model` flag is given, and the model the MCP server warms up on startup. **Not** a query-time override — query routing is automatic per index. | `jinaai/jina-embeddings-v2-base-code` |
 | `LEANN_MODEL_DIR` | Override the model directory location (rarely needed; computed from `LEANN_DATA_ROOT` + sanitized model id by default) | `<LEANN_DATA_ROOT>/models/<sanitized-id>` |
 | `LEANN_FORCE_CPU` | Set to `1` or `true` to disable GPU acceleration | (GPU enabled) |
 
@@ -479,7 +496,7 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release leann-dotnet
 |---------|----------|
 | "No ONNX model found" | Run `leann-dotnet --setup` (downloads the active model). The model directory is `<LEANN_DATA_ROOT>/models/<sanitized-model-id>/`. |
 | "Pre-computed embeddings not found" | Run `leann-dotnet --build-indexes` |
-| `IndexCompatibility: refusing index ... built with <other-model>` | Either rebuild with the active model (`leann-dotnet --rebuild ...`) or set `LEANN_MODEL` to the model that built the index. |
+| `IndexCompatibility: refusing index ... built with <other-model>` | (Pre-v2.4.0 only.) As of v2.4.0 the server loads the manifest's model automatically — upgrade if you still see this message. The remaining cause is a dimension mismatch, which means the index is corrupt; rebuild with `leann-dotnet --rebuild ...`. |
 | "DirectML not available" | Falls back to CPU automatically. Update GPU drivers. |
 | Slow first search | Call `leann_warmup` to pre-load the model |
 | Out of GPU memory (4 GB VRAM) | Use `--batch-size 8` and/or `--max-tokens 256`. Set `LEANN_FORCE_CPU=1` if it still OOMs — single-query search is fast on CPU. |

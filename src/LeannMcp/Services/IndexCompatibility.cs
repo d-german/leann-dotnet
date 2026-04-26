@@ -3,42 +3,27 @@ using LeannMcp.Models;
 
 namespace LeannMcp.Services;
 
+/// <summary>
+/// Manifest-integrity check for a loaded index. After v2.4.0, embedding-model selection
+/// is per-index (not global), so this check no longer compares against an active descriptor.
+/// Its sole remaining job is to detect a corrupt manifest where the recorded dimensions
+/// disagree with the descriptor's dimensions (e.g. interrupted rebuild).
+/// </summary>
 public static class IndexCompatibility
 {
-    public static Result EnsureCompatibleModel(
+    public static Result EnsureManifestIntegrity(
         IndexMetadata meta,
-        EmbeddingModelDescriptor active,
+        EmbeddingModelDescriptor descriptor,
         string indexPath)
     {
-        var indexModel = meta.EmbeddingModel;
-        var indexDim = meta.Dimensions;
-
-        if (string.IsNullOrEmpty(indexModel))
-        {
-            return Result.Failure(BuildMessage(indexPath, "<unknown>", indexDim, active));
-        }
-
-        if (!string.Equals(indexModel, active.Id, StringComparison.Ordinal))
-        {
-            return Result.Failure(BuildMessage(indexPath, indexModel, indexDim, active));
-        }
-
-        if (indexDim != active.Dimensions)
+        if (meta.Dimensions != descriptor.Dimensions)
         {
             return Result.Failure(
-                $"Index at {indexPath} was built with embedding model '{indexModel}' (dim={indexDim}) " +
-                $"but the active model is '{active.Id}' (dim={active.Dimensions}). " +
-                "Dimension mismatch indicates a corrupt index. " +
-                "Run 'leann-dotnet --rebuild' to rebuild against the active model.");
+                $"Index at {indexPath} reports model '{descriptor.Id}' with dim={meta.Dimensions}, " +
+                $"but ModelRegistry says that model has dim={descriptor.Dimensions}. " +
+                $"The index file is likely corrupt; rebuild with: leann-dotnet --rebuild --index-name {Path.GetFileName(indexPath)}");
         }
 
         return Result.Success();
     }
-
-    private static string BuildMessage(string indexPath, string indexModel, int indexDim, EmbeddingModelDescriptor active) =>
-        $"Index at {indexPath} was built with embedding model '{indexModel}' (dim={indexDim}) " +
-        $"but the active model is '{active.Id}' (dim={active.Dimensions}). " +
-        "Cosine similarity across different embedding spaces is meaningless. " +
-        $"Either: (1) set environment variable LEANN_MODEL={indexModel} to query this index with its original model, " +
-        "or (2) run 'leann-dotnet --rebuild' to rebuild against the active model.";
 }

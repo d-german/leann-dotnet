@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using CSharpFunctionalExtensions;
 using LeannMcp.Models;
+using LeannMcp.Services.Search;
 using LeannMcp.Services.Workspace;
 using Microsoft.Extensions.Logging;
 
@@ -14,31 +15,26 @@ namespace LeannMcp.Services;
 /// </summary>
 public sealed class IndexManager
 {
-    private readonly IEmbeddingService _embeddingService;
-    private readonly EmbeddingModelDescriptor _activeDescriptor;
+    private readonly IEmbeddingServiceFactory _factory;
     private readonly ILogger<IndexManager> _logger;
     private readonly ConcurrentDictionary<string, LeannIndex> _cache = new();
     private readonly WorkspaceResolver? _resolver;
     private readonly string? _staticIndexesDir;
     private string? _lastResolvedIndexesDir;
     private readonly object _invalidationLock = new();
-    private readonly int _dimensions;
 
     public string IndexesDir => CurrentIndexesDir();
 
     public IndexManager(
-        IEmbeddingService embeddingService,
-        EmbeddingModelDescriptor activeDescriptor,
+        IEmbeddingServiceFactory factory,
         ILogger<IndexManager> logger,
         string? indexesDir = null)
     {
-        _embeddingService = embeddingService;
-        _activeDescriptor = activeDescriptor;
+        _factory = factory;
         _logger = logger;
         _staticIndexesDir = indexesDir ?? Path.Combine(
             Environment.GetEnvironmentVariable("LEANN_DATA_ROOT") ?? Directory.GetCurrentDirectory(),
             ".leann", "indexes");
-        _dimensions = activeDescriptor.Dimensions;
     }
 
     /// <summary>
@@ -46,16 +42,13 @@ public sealed class IndexManager
     /// <see cref="WorkspaceResolver"/> and clears the cache when it changes.
     /// </summary>
     public IndexManager(
-        IEmbeddingService embeddingService,
-        EmbeddingModelDescriptor activeDescriptor,
+        IEmbeddingServiceFactory factory,
         ILogger<IndexManager> logger,
         WorkspaceResolver resolver)
     {
-        _embeddingService = embeddingService;
-        _activeDescriptor = activeDescriptor;
+        _factory = factory;
         _logger = logger;
         _resolver = resolver;
-        _dimensions = activeDescriptor.Dimensions;
     }
 
     private string CurrentIndexesDir()
@@ -116,8 +109,10 @@ public sealed class IndexManager
 
         try
         {
-            _embeddingService.Warmup();
-            GetOrLoadIndex(warmupIndex);
+            // Load the warmup index first so we know which model to warm up.
+            var loadResult = GetOrLoadIndex(warmupIndex);
+            if (loadResult.IsSuccess)
+                loadResult.Value.EmbeddingService.Warmup();
             sw.Stop();
             lines.Add($"Model loaded and warmed up on '{warmupIndex}' in {sw.Elapsed.TotalSeconds:F1}s.");
         }
@@ -165,9 +160,23 @@ public sealed class IndexManager
             if (metadata is null)
                 return Result.Failure<LeannIndex>($"Failed to deserialize metadata for '{indexName}'");
 
-            var compatibility = IndexCompatibility.EnsureCompatibleModel(metadata, _activeDescriptor, indexDir);
+            var descriptorResult = ModelRegistry.GetById(metadata.EmbeddingModel)
+                .ToResult(
+                    $"Index '{indexName}' was built with model '{metadata.EmbeddingModel}', " +
+                    "which is not registered in ModelRegistry. " +
+                    "Add it to ModelRegistry.cs and re-setup, or rebuild this index against a registered model.");
+            if (descriptorResult.IsFailure)
+                return Result.Failure<LeannIndex>(descriptorResult.Error);
+            var descriptor = descriptorResult.Value;
+
+            var compatibility = IndexCompatibility.EnsureManifestIntegrity(metadata, descriptor, indexDir);
             if (compatibility.IsFailure)
                 return Result.Failure<LeannIndex>(compatibility.Error);
+
+            var serviceResult = _factory.GetOrCreate(descriptor);
+            if (serviceResult.IsFailure)
+                return Result.Failure<LeannIndex>(serviceResult.Error);
+            var embeddingService = serviceResult.Value;
 
             // Resolve passage file path (relative to index directory)
             var passageSource = metadata.PassageSources.FirstOrDefault();
@@ -181,7 +190,7 @@ public sealed class IndexManager
             var passageStore = new JsonlPassageStore(passagePath);
             _logger.LogInformation("Loaded {Count} passages for '{Name}'", passageStore.Count, indexName);
 
-            // Load pre-computed embeddings
+            // Load pre-computed embeddings (per-index dimensions from manifest)
             var embeddingsPath = Path.Combine(indexDir, "documents.embeddings.bin");
             var idsPath = Path.Combine(indexDir, "documents.ids.txt");
 
@@ -190,10 +199,14 @@ public sealed class IndexManager
                     $"Pre-computed embeddings not found for '{indexName}'. " +
                     "Run build-dotnet-indexes.py first.");
 
-            var vectorIndex = new FlatVectorIndex(embeddingsPath, idsPath, _dimensions);
-            _logger.LogInformation("Loaded {Count} embeddings for '{Name}'", vectorIndex.Count, indexName);
+            var vectorIndex = new FlatVectorIndex(embeddingsPath, idsPath, descriptor.Dimensions);
+            _logger.LogInformation("Loaded {Count} embeddings for '{Name}' (model: {Model}, dim: {Dim})",
+                vectorIndex.Count, indexName, descriptor.Id, descriptor.Dimensions);
 
-            return Result.Success(new LeannIndex(metadata, passageStore, vectorIndex));
+            var bm25 = new BM25Index(passageStore.EnumerateAll());
+            _logger.LogInformation("Built BM25 index for '{Name}' over {Count} passages", indexName, bm25.Count);
+
+            return Result.Success(new LeannIndex(metadata, passageStore, vectorIndex, descriptor, embeddingService, bm25));
         }
         catch (Exception ex)
         {
@@ -209,10 +222,49 @@ public sealed class IndexManager
         int dedupOverFetchFactor)
     {
         var fetchK = ComputeFetchK(topK, dedupThreshold, dedupOverFetchFactor);
-        return _embeddingService.ComputeEmbedding(query)
+        return index.EmbeddingService.ComputeEmbedding(query)
             .Bind(embedding => index.VectorIndex.Search(embedding, fetchK))
-            .Map(hits => NearDuplicateFilter.Filter(hits, index.VectorIndex.TryGetEmbedding, topK, dedupThreshold))
+            .Map(denseHits => FuseWithBm25(index.BM25, query, denseHits, fetchK))
+            .Map(fusedHits => NearDuplicateFilter.Filter(fusedHits, index.VectorIndex.TryGetEmbedding, topK, dedupThreshold))
             .Bind(filteredHits => EnrichResults(index.PassageStore, filteredHits));
+    }
+
+    private static IReadOnlyList<(string Id, float Score)> FuseWithBm25(
+        BM25Index bm25,
+        string query,
+        IReadOnlyList<(string Id, float Score)> denseHits,
+        int fetchK)
+    {
+        var lexicalHits = bm25.Search(query, fetchK);
+        var pin = bm25.FindBestIdentifierMatch(query);
+        return pin.HasValue
+            ? PinAndFuse(pin.Value, denseHits, lexicalHits, fetchK)
+            : ReciprocalRankFusion.Fuse(denseHits, lexicalHits, fetchK, lexicalWeight: 2.0f);
+    }
+
+    private static IReadOnlyList<(string Id, float Score)> PinAndFuse(
+        string pinnedId,
+        IReadOnlyList<(string Id, float Score)> denseHits,
+        IReadOnlyList<(string Id, float Score)> lexicalHits,
+        int fetchK)
+    {
+        var filteredDense = denseHits.Where(h => h.Id != pinnedId).ToArray();
+        var filteredLex = lexicalHits.Where(h => h.Id != pinnedId).ToArray();
+        var remaining = ReciprocalRankFusion.Fuse(filteredDense, filteredLex, Math.Max(0, fetchK - 1), lexicalWeight: 2.0f);
+
+        // Use a value just above the top remaining hit so the pinned doc
+        // displays in the same numeric scale as the rest. Ordering is already
+        // guaranteed by list position (prepend); the score is purely cosmetic
+        // for client UIs/logs/metrics. Avoids leaking a sentinel like
+        // float.MaxValue (~3.4e38) into user-visible output.
+        var pinnedScore = remaining.Count > 0 ? remaining[0].Score + 0.001f : 1.0f;
+
+        var fused = new List<(string Id, float Score)>(remaining.Count + 1)
+        {
+            (pinnedId, pinnedScore),
+        };
+        fused.AddRange(remaining);
+        return fused;
     }
 
     private static int ComputeFetchK(int topK, double dedupThreshold, int overFetchFactor)
@@ -281,5 +333,8 @@ public sealed class IndexManager
     private sealed record LeannIndex(
         IndexMetadata Metadata,
         IPassageStore PassageStore,
-        IVectorIndex VectorIndex);
+        IVectorIndex VectorIndex,
+        EmbeddingModelDescriptor Model,
+        IEmbeddingService EmbeddingService,
+        BM25Index BM25);
 }
