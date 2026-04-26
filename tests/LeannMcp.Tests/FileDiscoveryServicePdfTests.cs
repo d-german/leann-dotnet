@@ -89,6 +89,7 @@ public class FileDiscoveryServicePdfTests
             var chunker = new DocumentChunker(
                 new TextChunker(),
                 Enumerable.Empty<ICodeChunkStrategy>(),
+                pdfPipeline: null,
                 NullLogger<DocumentChunker>.Instance);
             var options = new ChunkingOptions { ChunkSize = 128, ChunkOverlap = 32, CodeChunkSize = 256, CodeChunkOverlap = 32, UseAst = false };
             var chunkResult = chunker.ChunkDocuments(docs, options);

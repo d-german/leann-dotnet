@@ -16,17 +16,22 @@ namespace LeannMcp.Services.Chunking;
 /// </summary>
 public sealed class DocumentChunker : IDocumentChunker
 {
+    private const string PdfSourceType = "pdf";
+
     private readonly ITextChunker _textChunker;
     private readonly IReadOnlyList<ICodeChunkStrategy> _strategies;
+    private readonly IPdfChunkingPipeline? _pdfPipeline;
     private readonly ILogger<DocumentChunker> _logger;
 
     public DocumentChunker(
         ITextChunker textChunker,
         IEnumerable<ICodeChunkStrategy> strategies,
+        IPdfChunkingPipeline? pdfPipeline,
         ILogger<DocumentChunker> logger)
     {
         _textChunker = textChunker;
         _strategies = strategies.ToList();
+        _pdfPipeline = pdfPipeline;
         _logger = logger;
     }
 
@@ -43,12 +48,25 @@ public sealed class DocumentChunker : IDocumentChunker
         for (var i = 0; i < documents.Count; i++)
         {
             var doc = documents[i];
-            var rawChunks = ChunkSingleDocument(doc, options);
-            var filteredChunks = ChunkQualityFilter.Filter(rawChunks);
-            droppedByFilter += rawChunks.Count - filteredChunks.Count;
 
-            foreach (var chunkText in filteredChunks)
-                passages.Add(CreatePassage(globalId++, chunkText, doc));
+            if (IsPdf(doc) && _pdfPipeline is not null)
+            {
+                var pdfResult = _pdfPipeline.Chunk(doc, options, globalId);
+                if (pdfResult.IsSuccess)
+                {
+                    foreach (var p in pdfResult.Value) passages.Add(p);
+                    globalId += pdfResult.Value.Count;
+                }
+            }
+            else
+            {
+                var rawChunks = ChunkSingleDocument(doc, options);
+                var filteredChunks = ChunkQualityFilter.Filter(rawChunks);
+                droppedByFilter += rawChunks.Count - filteredChunks.Count;
+
+                foreach (var chunkText in filteredChunks)
+                    passages.Add(CreatePassage(globalId++, chunkText, doc));
+            }
 
             if ((i + 1) % 50 == 0)
                 _logger.LogInformation("  Chunked {Done}/{Total} documents — {Passages} passages so far",
@@ -61,6 +79,9 @@ public sealed class DocumentChunker : IDocumentChunker
 
         return Result.Success<IReadOnlyList<PassageData>>(passages);
     }
+
+    private static bool IsPdf(SourceDocument doc) =>
+        string.Equals(doc.SourceType, PdfSourceType, StringComparison.OrdinalIgnoreCase);
 
     private IReadOnlyList<string> ChunkSingleDocument(SourceDocument doc, ChunkingOptions options)
     {

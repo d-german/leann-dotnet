@@ -1,4 +1,4 @@
-using LeannMcp.Models;
+﻿using LeannMcp.Models;
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
@@ -173,6 +173,8 @@ static async Task RunWatch(string[] args)
     builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
     builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
     builder.Services.AddSingleton<IStructuredDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfLayoutReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfChunkingPipeline, PdfChunkingPipeline>();
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
@@ -251,10 +253,12 @@ static int RunBuildPassages(string[] args)
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
     builder.Services.AddSingleton<PlainTextReader>();
     builder.Services.AddSingleton<PdfDocumentReader>();
-    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
-    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
     builder.Services.AddSingleton<IStructuredDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfLayoutReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfChunkingPipeline, PdfChunkingPipeline>();
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
+    builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
+    builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => GetActiveDescriptor());
