@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using CSharpFunctionalExtensions;
@@ -79,10 +79,16 @@ public sealed class IndexManager
         return resolved;
     }
 
-    public Result<IReadOnlyList<SearchResult>> Search(string indexName, string query, int topK = 5, int complexity = 32)
+    public Result<IReadOnlyList<SearchResult>> Search(
+        string indexName,
+        string query,
+        int topK = 5,
+        int complexity = 32,
+        double dedupThreshold = NearDuplicateFilter.DefaultThreshold,
+        int dedupOverFetchFactor = NearDuplicateFilter.DefaultOverFetchFactor)
     {
         return GetOrLoadIndex(indexName)
-            .Bind(index => ExecuteSearch(index, query, topK));
+            .Bind(index => ExecuteSearch(index, query, topK, dedupThreshold, dedupOverFetchFactor));
     }
 
     public Result<IReadOnlyList<string>> ListIndexes()
@@ -195,11 +201,25 @@ public sealed class IndexManager
         }
     }
 
-    private Result<IReadOnlyList<SearchResult>> ExecuteSearch(LeannIndex index, string query, int topK)
+    private Result<IReadOnlyList<SearchResult>> ExecuteSearch(
+        LeannIndex index,
+        string query,
+        int topK,
+        double dedupThreshold,
+        int dedupOverFetchFactor)
     {
+        var fetchK = ComputeFetchK(topK, dedupThreshold, dedupOverFetchFactor);
         return _embeddingService.ComputeEmbedding(query)
-            .Bind(embedding => index.VectorIndex.Search(embedding, topK))
-            .Bind(hits => EnrichResults(index.PassageStore, hits));
+            .Bind(embedding => index.VectorIndex.Search(embedding, fetchK))
+            .Map(hits => NearDuplicateFilter.Filter(hits, index.VectorIndex.TryGetEmbedding, topK, dedupThreshold))
+            .Bind(filteredHits => EnrichResults(index.PassageStore, filteredHits));
+    }
+
+    private static int ComputeFetchK(int topK, double dedupThreshold, int overFetchFactor)
+    {
+        if (dedupThreshold <= 0.0 || dedupThreshold >= 1.0) return topK;
+        var factor = Math.Max(1, overFetchFactor);
+        return checked(topK * factor);
     }
 
     private static Result<IReadOnlyList<SearchResult>> EnrichResults(

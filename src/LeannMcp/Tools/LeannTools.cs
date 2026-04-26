@@ -34,10 +34,12 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
         int complexity = 32,
         [Description("Include file paths and metadata in search results. Useful for understanding which files contain the results.")]
         bool show_metadata = false,
+        [Description("Cosine-similarity threshold above which adjacent top-K results are treated as near-duplicates and filtered. Default 0.95 strips obvious clones (heavy chunk-overlap or boilerplate); set to 0 (or 1) to disable.")]
+        double dedup_threshold = 0.95,
         CancellationToken cancellationToken = default)
     {
         await resolver.EnsureResolvedAsync(server, cancellationToken);
-        var result = indexManager.Search(index_name, query, top_k, complexity);
+        var result = indexManager.Search(index_name, query, top_k, complexity, dedup_threshold);
         if (result.IsFailure)
             return $"Error: {result.Error}";
 
