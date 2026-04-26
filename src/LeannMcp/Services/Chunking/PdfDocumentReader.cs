@@ -20,7 +20,7 @@ namespace LeannMcp.Services.Chunking;
 /// return <see cref="Result.Failure"/> rather than throwing.
 /// </summary>
 public sealed class PdfDocumentReader(ILogger<PdfDocumentReader> logger)
-    : IDocumentReader, IStructuredDocumentReader
+    : IDocumentReader, IStructuredDocumentReader, IPdfLayoutReader
 {
     private const string PdfExtension = ".pdf";
 
@@ -35,6 +35,11 @@ public sealed class PdfDocumentReader(ILogger<PdfDocumentReader> logger)
     public Result<IReadOnlyList<PageSegment>> ReadStructured(string filePath) =>
         ReadPages(filePath)
             .TapError(error => logger.LogWarning("PDF skipped: {Path}: {Error}", filePath, error));
+
+    public Result<IReadOnlyList<(int PageNumber, IReadOnlyList<PageLine> Lines)>> ReadLayout(string filePath) =>
+        TryOpen(filePath)
+            .Map(ExtractLayout)
+            .TapError(error => logger.LogWarning("PDF layout skipped: {Path}: {Error}", filePath, error));
 
     private static Result<IReadOnlyList<PageSegment>> ReadPages(string filePath) =>
         TryOpen(filePath).Map(ExtractPages);
@@ -65,6 +70,20 @@ public sealed class PdfDocumentReader(ILogger<PdfDocumentReader> logger)
                 pages.Add(new PageSegment(page.Number, page.Text ?? string.Empty));
             }
             return pages;
+        }
+    }
+
+    private static IReadOnlyList<(int PageNumber, IReadOnlyList<PageLine> Lines)> ExtractLayout(PdfDocument doc)
+    {
+        using (doc)
+        {
+            var layouts = new List<(int, IReadOnlyList<PageLine>)>(doc.NumberOfPages);
+            foreach (Page page in doc.GetPages())
+            {
+                var lines = PdfPageLineExtractor.Extract(page);
+                layouts.Add((page.Number, lines));
+            }
+            return layouts;
         }
     }
 

@@ -26,6 +26,22 @@ internal static class PdfFixtureBuilder
         return builder.Build();
     }
 
+    public static byte[] BuildPdfWithHeading(string heading, params string[] bodyLines)
+    {
+        var builder = new PdfDocumentBuilder();
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        var page = builder.AddPage(PageSize.A4);
+        page.AddText(heading, 18, new PdfPoint(50, 780), font);
+        var y = 750;
+        foreach (var line in bodyLines)
+        {
+            page.AddText(line, 11, new PdfPoint(50, y), font);
+            y -= 18;
+        }
+        return builder.Build();
+    }
+
     public static string WriteTempPdf(byte[] bytes)
     {
         var path = Path.Combine(Path.GetTempPath(), $"leann-pdf-test-{Guid.NewGuid():N}.pdf");
