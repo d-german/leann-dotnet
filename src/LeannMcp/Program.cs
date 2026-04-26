@@ -168,8 +168,11 @@ static async Task RunWatch(string[] args)
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
-    builder.Services.AddSingleton<IDocumentReader, PlainTextReader>();
-    builder.Services.AddSingleton<IDocumentReader, PdfDocumentReader>();
+    builder.Services.AddSingleton<PlainTextReader>();
+    builder.Services.AddSingleton<PdfDocumentReader>();
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IStructuredDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
@@ -242,8 +245,11 @@ static int RunBuildPassages(string[] args)
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
-    builder.Services.AddSingleton<IDocumentReader, PlainTextReader>();
-    builder.Services.AddSingleton<IDocumentReader, PdfDocumentReader>();
+    builder.Services.AddSingleton<PlainTextReader>();
+    builder.Services.AddSingleton<PdfDocumentReader>();
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IStructuredDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
