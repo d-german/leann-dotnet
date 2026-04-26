@@ -71,17 +71,22 @@ if (args.Contains("--build-indexes"))
 
 if (args.Contains("--rebuild"))
 {
+    // --rebuild means "rebuild everything": both Phase 1 (passages) and Phase 2 (indexes)
+    // must regenerate from scratch, otherwise passing --chunk-size/--chunk-overlap with
+    // --rebuild silently reuses the stale chunks. Inject --force into both phases'
+    // argument lists so each respects the rebuild intent.
+    var rebuildArgs = LeannMcp.RebuildArgsBuilder.WithForce(args);
+
     Console.Error.WriteLine("=== Phase 1: Build Passages ===");
     Console.Error.WriteLine();
-    var passageResult = RunBuildPassages(args);
+    var passageResult = RunBuildPassages(rebuildArgs);
     if (passageResult != 0) return passageResult;
 
     Console.Error.WriteLine();
     Console.Error.WriteLine("=== Phase 2: Build Indexes ===");
     Console.Error.WriteLine();
 
-    var indexArgs = args.ToList();
-    if (!indexArgs.Contains("--force")) indexArgs.Add("--force");
+    var indexArgs = rebuildArgs.ToList();
     var nameIdx = indexArgs.IndexOf("--index-name");
     if (nameIdx >= 0 && nameIdx + 1 < indexArgs.Count && !indexArgs.Contains("--index"))
     {
@@ -485,6 +490,9 @@ static void PrintUsage()
         Rebuild Mode:
           Accepts all options from both passage and index builders.
           Runs --build-passages first, then --build-indexes.
+          Implies --force for BOTH phases — re-chunks AND re-embeds. Use this when
+          you change --chunk-size, --chunk-overlap, or any chunking option and want
+          the index to reflect the new settings.
 
         Watch Mode:
           --interval N           Check interval in seconds (default: 300)
