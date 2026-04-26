@@ -42,6 +42,39 @@ internal static class PdfFixtureBuilder
         return builder.Build();
     }
 
+    /// <summary>
+    /// Builds a multi-page PDF where every page carries the same footer
+    /// (boilerplate exercise for HeaderFooterStripper) and the first page
+    /// has an oversized heading (exercise for HeadingDetector). Each page's
+    /// body is a list of unique lines so chunkers can be tested for
+    /// page-boundary respect.
+    /// </summary>
+    public static byte[] BuildPdfWithBoilerplateAndHeading(
+        string heading,
+        string sharedFooter,
+        IReadOnlyList<IReadOnlyList<string>> perPageBody)
+    {
+        var builder = new PdfDocumentBuilder();
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+        for (var pageIndex = 0; pageIndex < perPageBody.Count; pageIndex++)
+        {
+            var page = builder.AddPage(PageSize.A4);
+            var y = 780;
+            if (pageIndex == 0)
+            {
+                page.AddText(heading, 18, new PdfPoint(50, y), font);
+                y -= 30;
+            }
+            foreach (var line in perPageBody[pageIndex])
+            {
+                page.AddText(line, 11, new PdfPoint(50, y), font);
+                y -= 18;
+            }
+            page.AddText(sharedFooter, 9, new PdfPoint(50, 40), font);
+        }
+        return builder.Build();
+    }
+
     public static string WriteTempPdf(byte[] bytes)
     {
         var path = Path.Combine(Path.GetTempPath(), $"leann-pdf-test-{Guid.NewGuid():N}.pdf");

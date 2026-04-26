@@ -67,7 +67,9 @@ public sealed class PdfDocumentReader(ILogger<PdfDocumentReader> logger)
             var pages = new List<PageSegment>(doc.NumberOfPages);
             foreach (Page page in doc.GetPages())
             {
-                pages.Add(new PageSegment(page.Number, page.Text ?? string.Empty));
+                var lines = PdfPageLineExtractor.Extract(page);
+                var text = string.Join('\n', lines.Select(l => l.Text));
+                pages.Add(new PageSegment(page.Number, text));
             }
             return pages;
         }
