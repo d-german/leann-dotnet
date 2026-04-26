@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+﻿using CSharpFunctionalExtensions;
 using LeannMcp.Models;
 using Microsoft.Extensions.Logging;
 
@@ -7,7 +7,9 @@ namespace LeannMcp.Services.Chunking;
 /// <summary>
 /// Discovers files in a directory tree, respecting .gitignore rules and extension filters.
 /// </summary>
-public sealed class FileDiscoveryService(ILogger<FileDiscoveryService> logger) : IFileDiscovery
+public sealed class FileDiscoveryService(
+    ILogger<FileDiscoveryService> logger,
+    IEnumerable<IDocumentReader> documentReaders) : IFileDiscovery
 {
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -15,11 +17,13 @@ public sealed class FileDiscoveryService(ILogger<FileDiscoveryService> logger) :
         ".zip", ".gz", ".tar", ".7z", ".rar",
         ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp",
         ".mp3", ".mp4", ".avi", ".mov", ".wav",
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".pptx",
+        ".doc", ".docx", ".xls", ".xlsx", ".pptx",
         ".woff", ".woff2", ".ttf", ".eot",
         ".pyc", ".pyo", ".class",
         ".lock", ".pickle",
     };
+
+    private readonly IReadOnlyList<IDocumentReader> _readers = documentReaders.ToList();
 
     public Result<IReadOnlyList<SourceDocument>> DiscoverFiles(string rootPath, ChunkingOptions options)
     {
@@ -56,15 +60,12 @@ public sealed class FileDiscoveryService(ILogger<FileDiscoveryService> logger) :
     {
         var relativeDirPath = GetRelativePath(dir, rootDir);
 
-        // Skip hidden directories
         if (!includeHidden && IsHiddenPath(dir) && dir != rootDir)
             return;
 
-        // Check if directory is gitignored
         if (relativeDirPath.Length > 0 && filter.IsIgnored(relativeDirPath, isDirectory: true))
             return;
 
-        // Process files in this directory
         foreach (var filePath in EnumerateFilesSafe(dir))
         {
             var fileName = Path.GetFileName(filePath);
@@ -91,37 +92,51 @@ public sealed class FileDiscoveryService(ILogger<FileDiscoveryService> logger) :
             }
         }
 
-        // Recurse into subdirectories
         foreach (var subDir in EnumerateDirectoriesSafe(dir))
         {
             WalkDirectory(subDir, rootDir, filter, supportedExtensions, includeHidden, results);
         }
     }
 
-    private static SourceDocument? TryLoadDocument(string filePath, string relativePath)
+    private SourceDocument? TryLoadDocument(string filePath, string relativePath)
     {
-        try
+        var ext = Path.GetExtension(filePath);
+        var reader = SelectReader(ext);
+        var readResult = reader.Read(filePath);
+        if (readResult.IsFailure)
         {
-            var content = File.ReadAllText(filePath);
-            var fileInfo = new FileInfo(filePath);
-            var ext = Path.GetExtension(filePath);
-            var language = FileExtensions.GetLanguage(ext);
-
-            return new SourceDocument
-            {
-                Content = content,
-                FilePath = relativePath,
-                FileName = Path.GetFileName(filePath),
-                CreationDate = fileInfo.CreationTimeUtc,
-                LastModifiedDate = fileInfo.LastWriteTimeUtc,
-                IsCode = language is not null,
-                Language = language,
-            };
-        }
-        catch
-        {
+            logger.LogWarning("Skipping {Path}: {Error}", filePath, readResult.Error);
             return null;
         }
+
+        var fileInfo = new FileInfo(filePath);
+        var language = FileExtensions.GetLanguage(ext);
+        var sourceType = reader is PdfDocumentReader ? "pdf" : "text";
+
+        return new SourceDocument
+        {
+            Content = readResult.Value,
+            FilePath = relativePath,
+            FileName = Path.GetFileName(filePath),
+            CreationDate = fileInfo.CreationTimeUtc,
+            LastModifiedDate = fileInfo.LastWriteTimeUtc,
+            IsCode = language is not null,
+            Language = language,
+            SourceType = sourceType,
+        };
+    }
+
+    private IDocumentReader SelectReader(string extension)
+    {
+        for (var i = 0; i < _readers.Count; i++)
+        {
+            var reader = _readers[i];
+            if (reader is PlainTextReader)
+                continue;
+            if (reader.CanHandle(extension))
+                return reader;
+        }
+        return _readers.OfType<PlainTextReader>().First();
     }
 
     private static void LoadGitIgnoreRecursive(GitIgnoreFilter filter, string rootDir)
@@ -132,7 +147,7 @@ public sealed class FileDiscoveryService(ILogger<FileDiscoveryService> logger) :
         foreach (var subDir in EnumerateDirectoriesSafe(rootDir))
         {
             var dirName = Path.GetFileName(subDir);
-            if (dirName.StartsWith('.')) continue; // Skip .git etc.
+            if (dirName.StartsWith('.')) continue;
 
             var subGitignore = Path.Combine(subDir, ".gitignore");
             if (File.Exists(subGitignore))

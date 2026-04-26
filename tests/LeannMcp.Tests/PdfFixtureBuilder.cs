@@ -1,0 +1,35 @@
+﻿using System.IO;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
+
+namespace LeannMcp.Tests;
+
+/// <summary>
+/// Builds tiny multi-page PDFs in-memory for tests. Avoids checking
+/// binary fixtures into the repo.
+/// </summary>
+internal static class PdfFixtureBuilder
+{
+    public static byte[] BuildTwoPagePdf(string page1Text, string page2Text)
+    {
+        var builder = new PdfDocumentBuilder();
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        var page1 = builder.AddPage(PageSize.A4);
+        page1.AddText(page1Text, 12, new PdfPoint(50, 750), font);
+
+        var page2 = builder.AddPage(PageSize.A4);
+        page2.AddText(page2Text, 12, new PdfPoint(50, 750), font);
+
+        return builder.Build();
+    }
+
+    public static string WriteTempPdf(byte[] bytes)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"leann-pdf-test-{Guid.NewGuid():N}.pdf");
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+}

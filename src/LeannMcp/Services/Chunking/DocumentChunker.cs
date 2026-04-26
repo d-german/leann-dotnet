@@ -87,6 +87,7 @@ public sealed class DocumentChunker : IDocumentChunker
         AddMetadata(metadata, "file_path", doc.FilePath);
         AddMetadata(metadata, "file_name", doc.FileName);
         AddMetadata(metadata, "source", doc.FilePath);
+        AddMetadata(metadata, "source_type", doc.SourceType);
 
         if (doc.CreationDate.HasValue)
             AddMetadata(metadata, "creation_date", doc.CreationDate.Value.ToString("yyyy-MM-dd"));

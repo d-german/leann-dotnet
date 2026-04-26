@@ -1,4 +1,4 @@
-namespace LeannMcp.Models;
+﻿namespace LeannMcp.Models;
 
 /// <summary>
 /// Represents a loaded source file ready for chunking.
@@ -12,6 +12,7 @@ public sealed record SourceDocument
     public DateTime? LastModifiedDate { get; init; }
     public bool IsCode { get; init; }
     public string? Language { get; init; }
+    public string SourceType { get; init; } = "text";
 }
 
 /// <summary>
@@ -64,7 +65,7 @@ public static class FileExtensions
     public static readonly IReadOnlySet<string> TextExtensions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".txt", ".md", ".markdown", ".rst",
+            ".txt", ".md", ".markdown", ".rst", ".pdf",
             ".json", ".yaml", ".yml", ".xml", ".toml", ".ini", ".cfg", ".conf",
             ".html", ".htm", ".css", ".scss", ".less",
             ".vue", ".svelte",

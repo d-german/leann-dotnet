@@ -258,6 +258,7 @@ Starting in **1.0.15**, code files are chunked by language structure rather than
 |-------------|----------|-------|
 | C# (`.cs`) | **Roslyn AST** (`Microsoft.CodeAnalysis.CSharp`) | One chunk per method, constructor, property, indexer, operator, event, field, enum, delegate. Nested types and file-scoped namespaces supported. Each chunk is prefixed with a `// {namespace}.{type}.{member}` context comment so embeddings carry symbolic context. |
 | TypeScript, JavaScript, Java, C/C++, Go, Rust, Kotlin, Scala, Swift, PHP | **Brace-balanced walker** | A small state machine that tracks strings, line/block comments, and template-literal interpolation (`${...}`) to split on top-level `{...}` blocks without being confused by braces inside strings. No native dependencies. |
+| PDF (`.pdf`) | **PdfPig text extraction + page markers** | Each page's text is extracted via [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) and joined with `\n\n--- Page N ---\n\n` separators. The prose chunker then splits on those paragraph breaks, so chunks naturally fall on page boundaries and search results stay citeable to a specific page. Passages emit `source_type=pdf` metadata. See [PDF Support](#pdf-support) for limitations. |
 | Markdown, JSON, YAML, plain text, etc. | **Sliding-window character chunker** (legacy) | Unchanged from previous releases. |
 
 After chunking, **every** passage (regardless of strategy) goes through a quality filter that drops:
@@ -292,6 +293,33 @@ LEANN Passage Builder
   Code chunk: 512 (overlap 64)
   AST chunk:  enabled (Roslyn for C#, brace-balanced for C-family)
   File types: ...
+```
+
+## PDF Support
+
+Starting in **2.2.0**, `.pdf` files are first-class citizens of the index alongside source code and Markdown.
+
+**How it works**
+
+- Files are extracted page-by-page via [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) (pure managed .NET, MIT licensed, zero native deps).
+- Pages are joined with `\n\n--- Page N ---\n\n` markers so the prose chunker splits on paragraph breaks, keeping each chunk citeable to a specific page.
+- Every PDF passage carries `source_type: "pdf"` in its metadata, so MCP search consumers can filter or visually distinguish PDF results from code/Markdown.
+
+**What works**
+
+- Text-based PDFs (technical docs, runbooks, design specs, API references, exported Word/HTML output).
+- Multi-column layouts (best-effort — see PdfPig docs for the underlying letter-positioning heuristics).
+- Mixed indexes with PDFs, source code, and Markdown in the same `--docs` directory.
+
+**What does NOT work (yet)**
+
+- **Scanned / image-only PDFs** — these contain no embedded text. PdfPig will return zero text for affected pages and the file will be indexed as an empty document. There is no built-in OCR. If you need OCR, pre-extract with a tool like Tesseract or `pdftotext` (Poppler) and index the resulting `.txt`/`.md` instead.
+- **Encrypted / password-protected PDFs** — these are skipped with a `warn`-level log message; the build continues with the remaining files.
+- **Corrupt PDFs** — same skip-with-warning behavior. One bad file in a 5,000-file repo will not abort the run.
+
+```bash
+# Mixed code + PDF index
+leann-dotnet --rebuild --docs C:\projects\my-app C:\docs\architecture --index-name my-app
 ```
 
 ## Environment Variables
