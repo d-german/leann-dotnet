@@ -168,6 +168,8 @@ static async Task RunWatch(string[] args)
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<IDocumentReader, PlainTextReader>();
+    builder.Services.AddSingleton<IDocumentReader, PdfDocumentReader>();
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
@@ -240,6 +242,9 @@ static int RunBuildPassages(string[] args)
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<IDocumentReader, PlainTextReader>();
+    builder.Services.AddSingleton<IDocumentReader, PdfDocumentReader>();
+    builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => GetActiveDescriptor());
@@ -258,8 +263,7 @@ static int RunBuildPassages(string[] args)
     Console.Error.WriteLine($"  Output:     {indexDir}");
     Console.Error.WriteLine();
 
-    var fsLogger = host.Services.GetRequiredService<ILogger<FileDiscoveryService>>();
-    var fileDiscovery = new FileDiscoveryService(fsLogger);
+    var fileDiscovery = host.Services.GetRequiredService<IFileDiscovery>();
     var allDocuments = new List<SourceDocument>();
     foreach (var docPath in docPaths)
     {

@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0] — PDF support
+
+### Added
+- **PDF indexing.** `.pdf` files are now indexed alongside source code and Markdown via a new `IDocumentReader` abstraction backed by `PdfDocumentReader` (UglyToad.PdfPig, pure managed .NET). Pages are joined with `\n\n--- Page N ---\n\n` markers so chunks naturally split on page boundaries and search results stay citeable to a specific page.
+- **`source_type` passage metadata.** Every passage now emits `source_type` (`"pdf"` or `"text"`) so MCP search consumers can filter or distinguish PDF hits from code/Markdown.
+- **`IDocumentReader` extension point.** Adding new file formats (DOCX, EPUB, etc.) is now a closed change: implement `IDocumentReader.CanHandle/Read` and register it in DI — `FileDiscoveryService` requires no further edits.
+
+### Changed
+- `.pdf` removed from the `BinaryExtensions` deny-list and added to `FileExtensions.TextExtensions`.
+- `FileDiscoveryService.TryLoadDocument` no longer calls `File.ReadAllText` directly; reader selection is dispatched through the registered `IEnumerable<IDocumentReader>` (most-specific reader wins; `PlainTextReader` is the fallback).
+
+### Limitations
+- Scanned / image-only PDFs are NOT supported (no OCR). Encrypted and corrupt PDFs are skipped with a `warn`-level log; the build continues.
+
 ## [Unreleased]
 
 ### Added
