@@ -161,8 +161,8 @@ static async Task RunWatch(string[] args)
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, RoslynChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
@@ -233,8 +233,8 @@ static int RunBuildPassages(string[] args)
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, RoslynChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => GetActiveDescriptor());

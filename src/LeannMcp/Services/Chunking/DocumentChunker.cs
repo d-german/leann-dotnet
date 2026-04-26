@@ -7,7 +7,7 @@ namespace LeannMcp.Services.Chunking;
 
 /// <summary>
 /// Orchestrates document chunking. Routes each document to a registered
-/// <see cref="IChunkStrategy"/> based on its language (Roslyn for C#,
+/// <see cref="ICodeChunkStrategy"/> based on its language (Roslyn for C#,
 /// brace-balanced for C-family). Falls back to <see cref="ITextChunker"/>'s
 /// line-based splitter when no strategy claims the language or when AST is
 /// disabled. Applies <see cref="ChunkQualityFilter"/> as a post-step on every
@@ -17,12 +17,12 @@ namespace LeannMcp.Services.Chunking;
 public sealed class DocumentChunker : IDocumentChunker
 {
     private readonly ITextChunker _textChunker;
-    private readonly IReadOnlyList<IChunkStrategy> _strategies;
+    private readonly IReadOnlyList<ICodeChunkStrategy> _strategies;
     private readonly ILogger<DocumentChunker> _logger;
 
     public DocumentChunker(
         ITextChunker textChunker,
-        IEnumerable<IChunkStrategy> strategies,
+        IEnumerable<ICodeChunkStrategy> strategies,
         ILogger<DocumentChunker> logger)
     {
         _textChunker = textChunker;
@@ -74,7 +74,7 @@ public sealed class DocumentChunker : IDocumentChunker
             : _textChunker.ChunkText(doc.Content, options.ChunkSize, options.ChunkOverlap, SplitMode.Sentence);
     }
 
-    private IChunkStrategy? SelectStrategy(SourceDocument doc, ChunkingOptions options)
+    private ICodeChunkStrategy? SelectStrategy(SourceDocument doc, ChunkingOptions options)
     {
         if (!options.UseAst || !doc.IsCode || doc.Language is null) return null;
         return _strategies.FirstOrDefault(s => s.CanHandle(doc.Language));

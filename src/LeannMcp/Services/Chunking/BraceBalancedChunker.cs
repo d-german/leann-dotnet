@@ -14,7 +14,7 @@ namespace LeannMcp.Services.Chunking;
 /// (e.g., <c>/}{/</c>) or JSX may slightly miscount, but they affect chunk boundaries only,
 /// not correctness of any single chunk's content.
 /// </summary>
-public sealed class BraceBalancedChunker : IChunkStrategy
+public sealed class BraceBalancedChunker : ICodeChunkStrategy
 {
     private static readonly HashSet<string> Supported = new(StringComparer.OrdinalIgnoreCase)
     {
