@@ -124,10 +124,27 @@ That's it — switching VS Code workspaces hot-swaps indexes without a restart.
 the workspace folder):
 
 ```json
-"env": { "LEANN_DATA_ROOT": "${workspaceFolder}", "LEANN_MODEL": "facebook/contriever" }
+"env": { "LEANN_DATA_ROOT": "${workspaceFolder}" }
 ```
 
-> **Index compatibility:** every index records the embedding model + dimensions used to build it. Loading an index that was built with a different model than the currently active one is **refused at load time** (the server logs `IndexCompatibility: refusing index ...`). Either rebuild with the new model, or set `LEANN_MODEL` back to the original.
+`LEANN_MODEL` is **only** needed to change the default model used when *building* indexes or to pick which model the server warms up at startup. At query time, the server automatically loads each index's own embedding model from its manifest — you can mix models freely in one workspace.
+
+> **Index compatibility:** every index records the embedding model + dimensions used to build it. The server reads the manifest at load time and uses the matching model to embed queries. Cross-model querying that previously errored out (`IndexCompatibility: refusing index ...`) now Just Works as of v2.4.0.
+
+### Mixing models in one workspace
+
+Code repositories generally retrieve better with `jinaai/jina-embeddings-v2-base-code`; PDF manuals and prose retrieve better with `facebook/contriever`. You can build both kinds of index side-by-side and query them all from one MCP session:
+
+```powershell
+# Build a code index with the default Jina model
+leann-dotnet --rebuild --docs C:\repos\my-app --index-name my-app
+
+# Build a PDF index with Contriever (text-domain model)
+leann-dotnet --rebuild --docs C:\docs\manuals --index-name manuals `
+  --model facebook/contriever --file-types .pdf
+```
+
+Both indexes are now queryable from a single MCP server — `leann_search index_name="my-app"` uses Jina, `leann_search index_name="manuals"` uses Contriever, no restart and no `LEANN_MODEL` change needed.
 
 ### 5. Search
 
@@ -258,6 +275,7 @@ Starting in **1.0.15**, code files are chunked by language structure rather than
 |-------------|----------|-------|
 | C# (`.cs`) | **Roslyn AST** (`Microsoft.CodeAnalysis.CSharp`) | One chunk per method, constructor, property, indexer, operator, event, field, enum, delegate. Nested types and file-scoped namespaces supported. Each chunk is prefixed with a `// {namespace}.{type}.{member}` context comment so embeddings carry symbolic context. |
 | TypeScript, JavaScript, Java, C/C++, Go, Rust, Kotlin, Scala, Swift, PHP | **Brace-balanced walker** | A small state machine that tracks strings, line/block comments, and template-literal interpolation (`${...}`) to split on top-level `{...}` blocks without being confused by braces inside strings. No native dependencies. |
+| PDF (`.pdf`) | **PdfPig text extraction + page markers** | Each page's text is extracted via [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) and joined with `\n\n--- Page N ---\n\n` separators. The prose chunker then splits on those paragraph breaks, so chunks naturally fall on page boundaries and search results stay citeable to a specific page. Passages emit `source_type=pdf` metadata. See [PDF Support](#pdf-support) for limitations. |
 | Markdown, JSON, YAML, plain text, etc. | **Sliding-window character chunker** (legacy) | Unchanged from previous releases. |
 
 After chunking, **every** passage (regardless of strategy) goes through a quality filter that drops:
@@ -294,12 +312,39 @@ LEANN Passage Builder
   File types: ...
 ```
 
+## PDF Support
+
+Starting in **2.2.0**, `.pdf` files are first-class citizens of the index alongside source code and Markdown.
+
+**How it works**
+
+- Files are extracted page-by-page via [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) (pure managed .NET, MIT licensed, zero native deps).
+- Pages are joined with `\n\n--- Page N ---\n\n` markers so the prose chunker splits on paragraph breaks, keeping each chunk citeable to a specific page.
+- Every PDF passage carries `source_type: "pdf"` in its metadata, so MCP search consumers can filter or visually distinguish PDF results from code/Markdown.
+
+**What works**
+
+- Text-based PDFs (technical docs, runbooks, design specs, API references, exported Word/HTML output).
+- Multi-column layouts (best-effort — see PdfPig docs for the underlying letter-positioning heuristics).
+- Mixed indexes with PDFs, source code, and Markdown in the same `--docs` directory.
+
+**What does NOT work (yet)**
+
+- **Scanned / image-only PDFs** — these contain no embedded text. PdfPig will return zero text for affected pages and the file will be indexed as an empty document. There is no built-in OCR. If you need OCR, pre-extract with a tool like Tesseract or `pdftotext` (Poppler) and index the resulting `.txt`/`.md` instead.
+- **Encrypted / password-protected PDFs** — these are skipped with a `warn`-level log message; the build continues with the remaining files.
+- **Corrupt PDFs** — same skip-with-warning behavior. One bad file in a 5,000-file repo will not abort the run.
+
+```bash
+# Mixed code + PDF index
+leann-dotnet --rebuild --docs C:\projects\my-app C:\docs\architecture --index-name my-app
+```
+
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` and `models/` | Current working directory |
-| `LEANN_MODEL` | Active embedding model id (e.g. `jinaai/jina-embeddings-v2-base-code`, `facebook/contriever`). Equivalent to passing `--model` on the command line | `jinaai/jina-embeddings-v2-base-code` |
+| `LEANN_MODEL` | Default model id for build commands (`--build-passages`/`--build-indexes`/`--rebuild`) when no `--model` flag is given, and the model the MCP server warms up on startup. **Not** a query-time override — query routing is automatic per index. | `jinaai/jina-embeddings-v2-base-code` |
 | `LEANN_MODEL_DIR` | Override the model directory location (rarely needed; computed from `LEANN_DATA_ROOT` + sanitized model id by default) | `<LEANN_DATA_ROOT>/models/<sanitized-id>` |
 | `LEANN_FORCE_CPU` | Set to `1` or `true` to disable GPU acceleration | (GPU enabled) |
 
@@ -451,7 +496,7 @@ dotnet tool install --global --add-source src/LeannMcp/bin/Release leann-dotnet
 |---------|----------|
 | "No ONNX model found" | Run `leann-dotnet --setup` (downloads the active model). The model directory is `<LEANN_DATA_ROOT>/models/<sanitized-model-id>/`. |
 | "Pre-computed embeddings not found" | Run `leann-dotnet --build-indexes` |
-| `IndexCompatibility: refusing index ... built with <other-model>` | Either rebuild with the active model (`leann-dotnet --rebuild ...`) or set `LEANN_MODEL` to the model that built the index. |
+| `IndexCompatibility: refusing index ... built with <other-model>` | (Pre-v2.4.0 only.) As of v2.4.0 the server loads the manifest's model automatically — upgrade if you still see this message. The remaining cause is a dimension mismatch, which means the index is corrupt; rebuild with `leann-dotnet --rebuild ...`. |
 | "DirectML not available" | Falls back to CPU automatically. Update GPU drivers. |
 | Slow first search | Call `leann_warmup` to pre-load the model |
 | Out of GPU memory (4 GB VRAM) | Use `--batch-size 8` and/or `--max-tokens 256`. Set `LEANN_FORCE_CPU=1` if it still OOMs — single-query search is fast on CPU. |

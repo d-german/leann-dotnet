@@ -1,4 +1,4 @@
-using LeannMcp.Models;
+﻿using LeannMcp.Models;
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
@@ -71,17 +71,22 @@ if (args.Contains("--build-indexes"))
 
 if (args.Contains("--rebuild"))
 {
+    // --rebuild means "rebuild everything": both Phase 1 (passages) and Phase 2 (indexes)
+    // must regenerate from scratch, otherwise passing --chunk-size/--chunk-overlap with
+    // --rebuild silently reuses the stale chunks. Inject --force into both phases'
+    // argument lists so each respects the rebuild intent.
+    var rebuildArgs = LeannMcp.RebuildArgsBuilder.WithForce(args);
+
     Console.Error.WriteLine("=== Phase 1: Build Passages ===");
     Console.Error.WriteLine();
-    var passageResult = RunBuildPassages(args);
+    var passageResult = RunBuildPassages(rebuildArgs);
     if (passageResult != 0) return passageResult;
 
     Console.Error.WriteLine();
     Console.Error.WriteLine("=== Phase 2: Build Indexes ===");
     Console.Error.WriteLine();
 
-    var indexArgs = args.ToList();
-    if (!indexArgs.Contains("--force")) indexArgs.Add("--force");
+    var indexArgs = rebuildArgs.ToList();
     var nameIdx = indexArgs.IndexOf("--index-name");
     if (nameIdx >= 0 && nameIdx + 1 < indexArgs.Count && !indexArgs.Contains("--index"))
     {
@@ -113,25 +118,19 @@ static async Task RunMcpServer(string[] args)
 
     var dataRoot = GetDataRoot();
     var descriptor = GetActiveDescriptor();
-    var modelsDir = GetModelDir(dataRoot, descriptor);
 
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => descriptor);
     builder.Services.AddSingleton<ITokenizerFactory, WordPieceTokenizerFactory>();
     builder.Services.AddSingleton<ITokenizerFactory, RobertaBpeTokenizerFactory>();
-    builder.Services.AddSingleton<IEmbeddingService>(sp =>
-        new OnnxEmbeddingService(
-            modelsDir,
-            sp.GetRequiredService<EmbeddingModelDescriptor>(),
-            sp.GetServices<ITokenizerFactory>(),
-            sp.GetRequiredService<ILogger<OnnxEmbeddingService>>()));
+    builder.Services.AddSingleton<IModelPathResolver, DefaultModelPathResolver>();
+    builder.Services.AddSingleton<IEmbeddingServiceFactory, OnnxEmbeddingServiceFactory>();
 
     // Workspace auto-detection (env > MCP roots > cwd) — see docs/workspace-roots-design.md
     builder.Services.AddSingleton<LeannMcp.Services.Workspace.WorkspaceRootStore>();
     builder.Services.AddSingleton<LeannMcp.Services.Workspace.WorkspaceResolver>();
     builder.Services.AddSingleton(sp =>
         new IndexManager(
-            sp.GetRequiredService<IEmbeddingService>(),
-            sp.GetRequiredService<EmbeddingModelDescriptor>(),
+            sp.GetRequiredService<IEmbeddingServiceFactory>(),
             sp.GetRequiredService<ILogger<IndexManager>>(),
             sp.GetRequiredService<LeannMcp.Services.Workspace.WorkspaceResolver>()));
 
@@ -161,8 +160,15 @@ static async Task RunWatch(string[] args)
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, RoslynChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<PlainTextReader>();
+    builder.Services.AddSingleton<PdfDocumentReader>();
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IStructuredDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfLayoutReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfChunkingPipeline, PdfChunkingPipeline>();
     builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
@@ -211,6 +217,10 @@ static int RunBuildPassages(string[] args)
         ChunkOverlap = ParseIntArg(args, "--chunk-overlap", 128),
         CodeChunkSize = ParseIntArg(args, "--code-chunk-size", 512),
         CodeChunkOverlap = ParseIntArg(args, "--code-chunk-overlap", 64),
+        PdfChunkSize = ParseIntArg(args, "--pdf-chunk-size", 1600),
+        PdfChunkOverlap = ParseIntArg(args, "--pdf-chunk-overlap", 200),
+        PdfBoilerplateRepeatRatio = ParseDoubleArg(args, "--pdf-boilerplate-ratio", 0.30),
+        PdfMinHeadingFontRatio = ParseDoubleArg(args, "--pdf-heading-font-ratio", 1.3),
         IncludeHidden = args.Contains("--include-hidden"),
         IncludeExtensions = ParseFileTypesArg(args),
         ExcludePaths = ParseExcludePathsArg(args),
@@ -233,8 +243,16 @@ static int RunBuildPassages(string[] args)
     builder.Logging.AddConsole(opts => opts.LogToStandardErrorThreshold = LogLevel.Trace);
 
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, RoslynChunker>();
-    builder.Services.AddSingleton<IChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<PlainTextReader>();
+    builder.Services.AddSingleton<PdfDocumentReader>();
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
+    builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IStructuredDocumentReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfLayoutReader>(sp => sp.GetRequiredService<PdfDocumentReader>());
+    builder.Services.AddSingleton<IPdfChunkingPipeline, PdfChunkingPipeline>();
+    builder.Services.AddSingleton<IFileDiscovery, FileDiscoveryService>();
     builder.Services.AddSingleton<IDocumentChunker, DocumentChunker>();
     builder.Services.AddSingleton<IPassageWriter, PassageWriter>();
     builder.Services.AddSingleton<EmbeddingModelDescriptor>(_ => GetActiveDescriptor());
@@ -253,8 +271,7 @@ static int RunBuildPassages(string[] args)
     Console.Error.WriteLine($"  Output:     {indexDir}");
     Console.Error.WriteLine();
 
-    var fsLogger = host.Services.GetRequiredService<ILogger<FileDiscoveryService>>();
-    var fileDiscovery = new FileDiscoveryService(fsLogger);
+    var fileDiscovery = host.Services.GetRequiredService<IFileDiscovery>();
     var allDocuments = new List<SourceDocument>();
     foreach (var docPath in docPaths)
     {
@@ -363,6 +380,16 @@ static int ParseIntArg(string[] args, string flag, int defaultValue)
     return defaultValue;
 }
 
+static double ParseDoubleArg(string[] args, string flag, double defaultValue)
+{
+    var idx = Array.IndexOf(args, flag);
+    if (idx >= 0 && idx + 1 < args.Length &&
+        double.TryParse(args[idx + 1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var value))
+        return value;
+    return defaultValue;
+}
+
 static string? ParseStringArg(string[] args, string flag)
 {
     var idx = Array.IndexOf(args, flag);
@@ -460,6 +487,14 @@ static void PrintUsage()
           --chunk-overlap N             Text chunk overlap in chars (default: 128)
           --code-chunk-size N           Code chunk size in chars (default: 512)
           --code-chunk-overlap N        Code chunk overlap in chars (default: 64)
+          --pdf-chunk-size N            PDF prose chunk size in chars (default: 1600)
+          --pdf-chunk-overlap N         PDF chunk overlap in chars (default: 200, ~12%)
+          --pdf-boilerplate-ratio R     Header/footer detection threshold 0..1
+                                        (default: 0.30 — strip lines repeating
+                                        on >=30% of pages)
+          --pdf-heading-font-ratio R    Min font-size multiplier vs body for
+                                        a line to be classified as a heading
+                                        (default: 1.3)
           --include-hidden              Include hidden files/directories
           --file-types EXT [EXT...]     Whitelist of file extensions to index
                                         (e.g. .cs .csproj .sln, or comma-separated:
@@ -485,6 +520,9 @@ static void PrintUsage()
         Rebuild Mode:
           Accepts all options from both passage and index builders.
           Runs --build-passages first, then --build-indexes.
+          Implies --force for BOTH phases — re-chunks AND re-embeds. Use this when
+          you change --chunk-size, --chunk-overlap, or any chunking option and want
+          the index to reflect the new settings.
 
         Watch Mode:
           --interval N           Check interval in seconds (default: 300)

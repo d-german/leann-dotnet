@@ -26,6 +26,8 @@ public sealed class JsonlPassageStore : IPassageStore
             : Result.Failure<PassageData>($"Passage ID not found: {passageId}");
     }
 
+    public IEnumerable<PassageData> EnumerateAll() => _passages.Values;
+
     private static IReadOnlyDictionary<string, PassageData> LoadPassages(string filePath)
     {
         var passages = new Dictionary<string, PassageData>();

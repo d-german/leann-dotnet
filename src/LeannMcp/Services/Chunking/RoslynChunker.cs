@@ -14,7 +14,7 @@ namespace LeannMcp.Services.Chunking;
 /// marker interfaces), emits the whole type as a single chunk.
 /// Falls back to emitting whole file as a single chunk if Roslyn cannot parse anything.
 /// </summary>
-public sealed class RoslynChunker : IChunkStrategy
+public sealed class RoslynChunker : ICodeChunkStrategy
 {
     public bool CanHandle(string? language) =>
         string.Equals(language, "csharp", StringComparison.OrdinalIgnoreCase);

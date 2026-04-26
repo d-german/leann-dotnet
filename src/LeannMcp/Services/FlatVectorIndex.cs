@@ -15,6 +15,7 @@ public sealed class FlatVectorIndex : IVectorIndex
 {
     private readonly float[][] _embeddings;
     private readonly string[] _ids;
+    private readonly Dictionary<string, int> _idToIndex;
     private readonly int _dimensions;
 
     public int Count => _embeddings.Length;
@@ -24,6 +25,19 @@ public sealed class FlatVectorIndex : IVectorIndex
         _dimensions = dimensions;
         _ids = LoadIds(idsPath);
         _embeddings = LoadEmbeddings(embeddingsPath, _ids.Length, dimensions);
+        _idToIndex = BuildIdLookup(_ids);
+    }
+
+    public float[]? TryGetEmbedding(string id)
+    {
+        return _idToIndex.TryGetValue(id, out var i) ? _embeddings[i] : null;
+    }
+
+    private static Dictionary<string, int> BuildIdLookup(string[] ids)
+    {
+        var map = new Dictionary<string, int>(ids.Length, StringComparer.Ordinal);
+        for (var i = 0; i < ids.Length; i++) map[ids[i]] = i;
+        return map;
     }
 
     public Result<IReadOnlyList<(string Id, float Score)>> Search(float[] queryEmbedding, int topK)

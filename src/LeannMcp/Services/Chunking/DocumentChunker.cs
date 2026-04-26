@@ -7,7 +7,7 @@ namespace LeannMcp.Services.Chunking;
 
 /// <summary>
 /// Orchestrates document chunking. Routes each document to a registered
-/// <see cref="IChunkStrategy"/> based on its language (Roslyn for C#,
+/// <see cref="ICodeChunkStrategy"/> based on its language (Roslyn for C#,
 /// brace-balanced for C-family). Falls back to <see cref="ITextChunker"/>'s
 /// line-based splitter when no strategy claims the language or when AST is
 /// disabled. Applies <see cref="ChunkQualityFilter"/> as a post-step on every
@@ -16,17 +16,22 @@ namespace LeannMcp.Services.Chunking;
 /// </summary>
 public sealed class DocumentChunker : IDocumentChunker
 {
+    private const string PdfSourceType = "pdf";
+
     private readonly ITextChunker _textChunker;
-    private readonly IReadOnlyList<IChunkStrategy> _strategies;
+    private readonly IReadOnlyList<ICodeChunkStrategy> _strategies;
+    private readonly IPdfChunkingPipeline? _pdfPipeline;
     private readonly ILogger<DocumentChunker> _logger;
 
     public DocumentChunker(
         ITextChunker textChunker,
-        IEnumerable<IChunkStrategy> strategies,
+        IEnumerable<ICodeChunkStrategy> strategies,
+        IPdfChunkingPipeline? pdfPipeline,
         ILogger<DocumentChunker> logger)
     {
         _textChunker = textChunker;
         _strategies = strategies.ToList();
+        _pdfPipeline = pdfPipeline;
         _logger = logger;
     }
 
@@ -43,12 +48,25 @@ public sealed class DocumentChunker : IDocumentChunker
         for (var i = 0; i < documents.Count; i++)
         {
             var doc = documents[i];
-            var rawChunks = ChunkSingleDocument(doc, options);
-            var filteredChunks = ChunkQualityFilter.Filter(rawChunks);
-            droppedByFilter += rawChunks.Count - filteredChunks.Count;
 
-            foreach (var chunkText in filteredChunks)
-                passages.Add(CreatePassage(globalId++, chunkText, doc));
+            if (IsPdf(doc) && _pdfPipeline is not null)
+            {
+                var pdfResult = _pdfPipeline.Chunk(doc, options, globalId);
+                if (pdfResult.IsSuccess)
+                {
+                    foreach (var p in pdfResult.Value) passages.Add(p);
+                    globalId += pdfResult.Value.Count;
+                }
+            }
+            else
+            {
+                var rawChunks = ChunkSingleDocument(doc, options);
+                var filteredChunks = ChunkQualityFilter.Filter(rawChunks);
+                droppedByFilter += rawChunks.Count - filteredChunks.Count;
+
+                foreach (var chunkText in filteredChunks)
+                    passages.Add(CreatePassage(globalId++, chunkText, doc));
+            }
 
             if ((i + 1) % 50 == 0)
                 _logger.LogInformation("  Chunked {Done}/{Total} documents — {Passages} passages so far",
@@ -62,6 +80,9 @@ public sealed class DocumentChunker : IDocumentChunker
         return Result.Success<IReadOnlyList<PassageData>>(passages);
     }
 
+    private static bool IsPdf(SourceDocument doc) =>
+        string.Equals(doc.SourceType, PdfSourceType, StringComparison.OrdinalIgnoreCase);
+
     private IReadOnlyList<string> ChunkSingleDocument(SourceDocument doc, ChunkingOptions options)
     {
         var strategy = SelectStrategy(doc, options);
@@ -74,7 +95,7 @@ public sealed class DocumentChunker : IDocumentChunker
             : _textChunker.ChunkText(doc.Content, options.ChunkSize, options.ChunkOverlap, SplitMode.Sentence);
     }
 
-    private IChunkStrategy? SelectStrategy(SourceDocument doc, ChunkingOptions options)
+    private ICodeChunkStrategy? SelectStrategy(SourceDocument doc, ChunkingOptions options)
     {
         if (!options.UseAst || !doc.IsCode || doc.Language is null) return null;
         return _strategies.FirstOrDefault(s => s.CanHandle(doc.Language));
@@ -87,6 +108,7 @@ public sealed class DocumentChunker : IDocumentChunker
         AddMetadata(metadata, "file_path", doc.FilePath);
         AddMetadata(metadata, "file_name", doc.FileName);
         AddMetadata(metadata, "source", doc.FilePath);
+        AddMetadata(metadata, "source_type", doc.SourceType);
 
         if (doc.CreationDate.HasValue)
             AddMetadata(metadata, "creation_date", doc.CreationDate.Value.ToString("yyyy-MM-dd"));

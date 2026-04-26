@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.4.0] — Per-index embedding model selection
+
+### Added
+- **Per-index embedding model.** Each index now records its embedding model in its manifest, and the MCP server reads that manifest at load time to embed queries with the correct model. A single MCP server process can now serve multiple indexes built with different models — e.g. a code repo indexed with `jinaai/jina-embeddings-v2-base-code` and a PDF manual indexed with `facebook/contriever` — without any environment-variable juggling.
+- **`IEmbeddingServiceFactory` abstraction.** Embedding services are now created (and cached) per-model via `OnnxEmbeddingServiceFactory`, keyed by the model id. Adding a new model requires only registering a descriptor in `ModelRegistry`; no DI plumbing changes.
+- **Per-index `IEmbeddingService` instances.** `LeannIndex` now carries its own `IEmbeddingService` and `EmbeddingModelDescriptor`, so search routing is correct by construction — `IndexManager.Search` dispatches the query through the index's own embedding service, not a global singleton.
+
+### Changed
+- `IndexCompatibility` no longer fails on a model-id mismatch between the active environment and an index manifest. The previous "refusing index … built with `<other-model>`" error is gone — that scenario now just loads the right model on demand. The compatibility check is reduced to its still-meaningful invariant: dimensions in the manifest must match the resolved descriptor.
+- `LEANN_MODEL` semantics narrowed: it now governs only (a) the default model used by `--build-passages`/`--build-indexes`/`--rebuild` when no `--model` flag is given, and (b) the warmup model on MCP server startup. It is **no longer** a per-query override — query-time model selection is automatic per index.
+- `IndexManager` constructors now take `IEmbeddingServiceFactory` instead of `IEmbeddingService`. Build-time hosts (`--watch`, `--build-indexes`) are unchanged: those processes still use exactly one model per invocation, registered as a singleton.
+
+### Removed
+- The `LEANN_MODEL=<id>` workaround for querying mixed-model workspaces. It is no longer needed and the documentation that mentioned it has been removed.
+
+
+
+### Added
+- **PDF indexing.** `.pdf` files are now indexed alongside source code and Markdown via a new `IDocumentReader` abstraction backed by `PdfDocumentReader` (UglyToad.PdfPig, pure managed .NET). Pages are joined with `\n\n--- Page N ---\n\n` markers so chunks naturally split on page boundaries and search results stay citeable to a specific page.
+- **`source_type` passage metadata.** Every passage now emits `source_type` (`"pdf"` or `"text"`) so MCP search consumers can filter or distinguish PDF hits from code/Markdown.
+- **`IDocumentReader` extension point.** Adding new file formats (DOCX, EPUB, etc.) is now a closed change: implement `IDocumentReader.CanHandle/Read` and register it in DI — `FileDiscoveryService` requires no further edits.
+
+### Changed
+- `.pdf` removed from the `BinaryExtensions` deny-list and added to `FileExtensions.TextExtensions`.
+- `FileDiscoveryService.TryLoadDocument` no longer calls `File.ReadAllText` directly; reader selection is dispatched through the registered `IEnumerable<IDocumentReader>` (most-specific reader wins; `PlainTextReader` is the fallback).
+
+### Limitations
+- Scanned / image-only PDFs are NOT supported (no OCR). Encrypted and corrupt PDFs are skipped with a `warn`-level log; the build continues.
+
 ## [Unreleased]
 
 ### Added
