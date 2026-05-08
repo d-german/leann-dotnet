@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.5.6] — 2026-05-08
+
+### Added
+- **Indentation-aware chunker for Python** — new `IndentationChunker` detects
+  top-level blocks by tracking indentation changes (column 0 → indented → back
+  to column 0). Keeps complete `def`/`class` bodies together, groups decorators
+  with their targets, and handles triple-quoted strings. Oversized blocks are
+  split at dedent points. Previously Python files fell back to the legacy
+  line-numbered sliding-window chunker, which could split functions mid-body.
+
 ## [2.5.5] — 2026-04-26
 
 ### Fixed

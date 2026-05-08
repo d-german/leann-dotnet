@@ -207,7 +207,7 @@ From your MCP client, use these tools:
 | `--include-hidden` | Include hidden files/dirs | false |
 | `--file-types EXT [EXT...]` | Whitelist of extensions (e.g. `.cs .csproj` or `.cs,.csproj`). When set, overrides the built-in extension defaults | (built-in defaults) |
 | `--exclude-paths PAT [PAT...]` | Gitignore-style globs to skip (e.g. `"**/Tests/**" "**/Mocks/**"`). Supports `**`, `*`, `?`. Combined with any `.gitignore` files found in the tree | (none) |
-| `--no-ast` | Disable AST-aware code chunking (Roslyn for C#, brace-balanced for TS/JS/Java/C-family) and fall back to the legacy line-based sliding-window chunker | false (AST enabled) |
+| `--no-ast` | Disable AST-aware code chunking (Roslyn for C#, brace-balanced for TS/JS/Java/C-family, indentation for Python) and fall back to the legacy line-based sliding-window chunker | false (AST enabled) |
 | `--force` | Overwrite existing passages | false |
 
 ### Index Builder Flags
@@ -277,6 +277,7 @@ Starting in **1.0.15**, code files are chunked by language structure rather than
 |-------------|----------|-------|
 | C# (`.cs`) | **Roslyn AST** (`Microsoft.CodeAnalysis.CSharp`) | One chunk per method, constructor, property, indexer, operator, event, field, enum, delegate. Nested types and file-scoped namespaces supported. Each chunk is prefixed with a `// {namespace}.{type}.{member}` context comment so embeddings carry symbolic context. |
 | TypeScript, JavaScript, Java, C/C++, Go, Rust, Kotlin, Scala, Swift, PHP | **Brace-balanced walker** | A small state machine that tracks strings, line/block comments, and template-literal interpolation (`${...}`) to split on top-level `{...}` blocks without being confused by braces inside strings. No native dependencies. |
+| Python (`.py`) | **Indentation-aware chunker** | Splits on top-level indentation boundaries — a return to column 0 after indented lines signals a block boundary. Keeps complete `def`/`class` bodies together, groups decorators with their targets, and handles triple-quoted strings. Oversized blocks are split at dedent points. No native dependencies. |
 | PDF (`.pdf`) | **PdfPig text extraction + page markers** | Each page's text is extracted via [UglyToad.PdfPig](https://github.com/UglyToad/PdfPig) and joined with `\n\n--- Page N ---\n\n` separators. The prose chunker then splits on those paragraph breaks, so chunks naturally fall on page boundaries and search results stay citeable to a specific page. Passages emit `source_type=pdf` metadata. See [PDF Support](#pdf-support) for limitations. |
 | Markdown, JSON, YAML, plain text, etc. | **Sliding-window character chunker** (legacy) | Unchanged from previous releases. |
 
@@ -310,7 +311,7 @@ The CLI also prints which mode is active in its startup banner:
 LEANN Passage Builder
   ...
   Code chunk: 512 (overlap 64)
-  AST chunk:  enabled (Roslyn for C#, brace-balanced for C-family)
+  AST chunk:  enabled (Roslyn for C#, brace-balanced for C-family, indentation for Python)
   File types: ...
 ```
 
