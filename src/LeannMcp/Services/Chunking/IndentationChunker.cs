@@ -45,9 +45,8 @@ public sealed class IndentationChunker : ICodeChunkStrategy
         var tripleChar = '\0';
         var seenIndented = false;
 
-        for (var i = 0; i < lines.Length; i++)
+        foreach (var line in lines)
         {
-            var line = lines[i];
             var stripped = line.TrimEnd('\r');
 
             // Track triple-quote state (toggle on odd occurrences of """ or ''').
@@ -84,7 +83,7 @@ public sealed class IndentationChunker : ICodeChunkStrategy
     /// Splits any block that exceeds <paramref name="maxSize"/> at dedent boundaries.
     /// Falls back to simple line-based splitting when no dedent produces a small-enough chunk.
     /// </summary>
-    private static IReadOnlyList<string> ApplySizeLimit(List<string> blocks, int maxSize)
+    private static List<string> ApplySizeLimit(List<string> blocks, int maxSize)
     {
         var result = new List<string>();
 
@@ -116,9 +115,8 @@ public sealed class IndentationChunker : ICodeChunkStrategy
         var currentLen = 0;
         var prevIndent = -1;
 
-        for (var i = 0; i < lines.Length; i++)
+        foreach (var line in lines)
         {
-            var line = lines[i];
             var indent = MeasureIndent(line);
             var isBlank = string.IsNullOrWhiteSpace(line);
             var lineLen = line.Length + 1; // +1 for the newline we'll rejoin with
@@ -201,7 +199,7 @@ public sealed class IndentationChunker : ICodeChunkStrategy
         {
             var c = line[i];
 
-            if (!inTriple && (c == '"' || c == '\'') && line[i + 1] == c && line[i + 2] == c)
+            if (!inTriple && c is '"' or '\'' && line[i + 1] == c && line[i + 2] == c)
             {
                 inTriple = true;
                 tripleChar = c;
