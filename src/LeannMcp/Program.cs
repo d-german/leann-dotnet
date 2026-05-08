@@ -157,6 +157,7 @@ static async Task<int> RunWatch(string[] args)
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, IndentationChunker>();
     builder.Services.AddSingleton<PlainTextReader>();
     builder.Services.AddSingleton<PdfDocumentReader>();
     builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());
@@ -243,6 +244,7 @@ static int RunBuildPassages(string[] args)
     builder.Services.AddSingleton<ITextChunker, TextChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, RoslynChunker>();
     builder.Services.AddSingleton<ICodeChunkStrategy, BraceBalancedChunker>();
+    builder.Services.AddSingleton<ICodeChunkStrategy, IndentationChunker>();
     builder.Services.AddSingleton<PlainTextReader>();
     builder.Services.AddSingleton<PdfDocumentReader>();
     builder.Services.AddSingleton<IDocumentReader>(sp => sp.GetRequiredService<PlainTextReader>());

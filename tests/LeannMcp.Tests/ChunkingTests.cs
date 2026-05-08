@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using LeannMcp.Models;
 using LeannMcp.Services.Chunking;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -148,5 +148,127 @@ public class ChunkingTests
         var input = new[] { "}", "public void M() { return; }", new string('=', 400), "real chunk with words" };
         var filtered = ChunkQualityFilter.Filter(input);
         Assert.Equal(2, filtered.Count);
+    }
+
+    // ---- IndentationChunker ----
+
+    [Fact]
+    public void IndentationChunker_TwoFunctions_EmitsTwoChunks()
+    {
+        const string source = """
+            def hello():
+                print('hello')
+
+            def world():
+                print('world')
+            """;
+        var chunker = new IndentationChunker();
+        var chunks = chunker.Chunk(source, DefaultOptions);
+        Assert.True(chunks.Count >= 2, $"expected >=2 chunks, got {chunks.Count}");
+    }
+
+    [Fact]
+    public void IndentationChunker_ClassWithMethods_EmitsOneChunk()
+    {
+        const string source = """
+            class MyClass:
+                def method1(self):
+                    pass
+                def method2(self):
+                    pass
+            """;
+        var chunker = new IndentationChunker();
+        var chunks = chunker.Chunk(source, DefaultOptions);
+        Assert.Single(chunks);
+    }
+
+    [Fact]
+    public void IndentationChunker_DecoratorGroupedWithFunction()
+    {
+        const string source = """
+            def first():
+                pass
+
+            @my_decorator
+            def second():
+                pass
+            """;
+        var chunker = new IndentationChunker();
+        var chunks = chunker.Chunk(source, DefaultOptions);
+        Assert.DoesNotContain(chunks, c => c.Contains("@my_decorator") && !c.Contains("def second"));
+    }
+
+    [Fact]
+    public void IndentationChunker_TripleQuotedString_NoFalseBoundary()
+    {
+        const string source = """"
+            def example():
+                doc = """
+            This text is at column 0
+            but should not split the block
+            """
+                return doc
+            """";
+        var chunker = new IndentationChunker();
+        var chunks = chunker.Chunk(source, DefaultOptions);
+        Assert.Single(chunks);
+    }
+
+    [Fact]
+    public void IndentationChunker_BlankLinesBetweenFunctions_StillSplits()
+    {
+        const string source = """
+            def first():
+                pass
+
+
+
+            def second():
+                pass
+            """;
+        var chunker = new IndentationChunker();
+        var chunks = chunker.Chunk(source, DefaultOptions);
+        Assert.True(chunks.Count >= 2, $"expected >=2 chunks, got {chunks.Count}");
+    }
+
+    [Fact]
+    public void IndentationChunker_CanHandle_OnlyPython()
+    {
+        var chunker = new IndentationChunker();
+        Assert.True(chunker.CanHandle("python"));
+        Assert.True(chunker.CanHandle("Python"));
+        Assert.False(chunker.CanHandle("csharp"));
+        Assert.False(chunker.CanHandle("javascript"));
+        Assert.False(chunker.CanHandle(null));
+    }
+
+    [Fact]
+    public void IndentationChunker_EmptyInput_ReturnsEmpty()
+    {
+        var chunker = new IndentationChunker();
+        Assert.Empty(chunker.Chunk("", DefaultOptions));
+        Assert.Empty(chunker.Chunk("   \n  \n  ", DefaultOptions));
+    }
+
+    [Fact]
+    public void IndentationChunker_OversizedBlock_SplitsAtDedent()
+    {
+        var lines = new System.Collections.Generic.List<string> { "def big_function():" };
+        for (var i = 0; i < 20; i++)
+            lines.Add($"    x_{i} = {i}");
+        var source = string.Join('\n', lines);
+
+        var options = new ChunkingOptions
+        {
+            ChunkSize = 256,
+            ChunkOverlap = 128,
+            CodeChunkSize = 100,
+            CodeChunkOverlap = 64,
+            UseAst = true,
+        };
+
+        var chunker = new IndentationChunker();
+        var chunks = chunker.Chunk(source, options);
+        Assert.True(chunks.Count >= 2, $"expected >=2 chunks, got {chunks.Count}");
     }
 }
