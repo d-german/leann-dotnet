@@ -78,6 +78,9 @@ public static class FileExtensions
             ".vue", ".svelte",
             ".dockerfile", ".dockerignore",
             ".editorconfig", ".gitattributes",
+            // Diagram-as-code. These are plain text describing architecture, so they
+            // answer "how do these services fit together" better than most source files.
+            ".puml", ".plantuml", ".iuml", ".mmd", ".mermaid", ".dot", ".gv",
         };
 
     /// <summary>

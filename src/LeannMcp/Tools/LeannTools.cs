@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using System.Text;
+using LeannMcp.Cli;
 using LeannMcp.Services;
 using LeannMcp.Services.Workspace;
 using ModelContextProtocol.Server;
@@ -43,7 +43,7 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
         if (result.IsFailure)
             return $"Error: {result.Error}";
 
-        return FormatSearchResults(query, result.Value, show_metadata);
+        return SearchResultFormatter.ToText(query, result.Value, show_metadata);
     }
 
     [McpServerTool(Name = "leann_list"), Description(
@@ -67,42 +67,5 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
         await resolver.EnsureResolvedAsync(server, cancellationToken);
         var result = indexManager.Warmup();
         return result.IsFailure ? $"Error: {result.Error}" : result.Value;
-    }
-
-    private static string FormatSearchResults(
-        string query,
-        IReadOnlyList<Models.SearchResult> results,
-        bool showMetadata)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine($"Search results for '{query}' (top {results.Count}):");
-
-        for (int i = 0; i < results.Count; i++)
-        {
-            var r = results[i];
-            sb.AppendLine($"{i + 1}. Score: {r.Score:F3}");
-
-            if (showMetadata && r.Metadata is not null)
-            {
-                if (r.Metadata.TryGetValue("file_path", out var fp))
-                    sb.AppendLine($"   File: {fp}");
-                if (r.Metadata.TryGetValue("file_name", out var fn) && fn.ToString() != fp.ToString())
-                    sb.AppendLine($"   Name: {fn}");
-                if (r.Metadata.TryGetValue("creation_date", out var cd))
-                    sb.AppendLine($"   Created: {cd}");
-                if (r.Metadata.TryGetValue("last_modified_date", out var lm))
-                    sb.AppendLine($"   Modified: {lm}");
-            }
-
-            var textPreview = SnippetTruncator.Truncate(r.Text);
-            sb.AppendLine($"   {textPreview}");
-
-            if (r.Metadata is not null && r.Metadata.TryGetValue("source", out var src))
-                sb.AppendLine($"   Source: {src}");
-
-            sb.AppendLine();
-        }
-
-        return sb.ToString().TrimEnd();
     }
 }

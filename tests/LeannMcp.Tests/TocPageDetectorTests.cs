@@ -19,9 +19,9 @@ public sealed class TocPageDetectorTests
         Overview
         Deployment Architecture
         Components Required for All Deployments
-        NilRead Components
-        OnBase Components
-        Configuring the API Server for Clinician Window
+        Viewer Components
+        Platform Components
+        Configuring the API Server for Example Viewer
         XDS Components
         """;
 
@@ -75,7 +75,7 @@ public sealed class TocPageDetectorTests
         // 20 pages total → front-matter cutoff = ceil(20 * 0.15) = 3, so pages 0..2 qualify.
         var pages = new List<PageSegment>
         {
-            new(1, "Cover Page\nHyland Software Product Documentation"),
+            new(1, "Cover Page\nExample Corp Product Documentation"),
             new(2, TocPageText),
             new(3, ContentPageText),
         };

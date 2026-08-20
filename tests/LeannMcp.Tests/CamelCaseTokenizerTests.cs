@@ -32,11 +32,11 @@ public sealed class CamelCaseTokenizerTests
     [Fact]
     public void Tokenize_DottedPath_EmitsWholeAndComponents()
     {
-        var tokens = CamelCaseTokenizer.Tokenize("Hyland.Healthcare.Config");
+        var tokens = CamelCaseTokenizer.Tokenize("Contoso.Billing.Config");
 
-        Assert.Contains("hyland.healthcare.config", tokens);
-        Assert.Contains("hyland", tokens);
-        Assert.Contains("healthcare", tokens);
+        Assert.Contains("contoso.billing.config", tokens);
+        Assert.Contains("contoso", tokens);
+        Assert.Contains("billing", tokens);
         Assert.Contains("config", tokens);
     }
 

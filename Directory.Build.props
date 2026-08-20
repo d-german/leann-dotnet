@@ -1,11 +1,12 @@
 <Project>
   <PropertyGroup>
-    <Version>2.5.6</Version>
-    <Authors>Hyland Foundation</Authors>
-    <Company>Hyland Software, Inc.</Company>
+    <Version>2.7.1</Version>
+    <Authors>dgerman</Authors>
+    <Company>dgerman</Company>
     <Product>LEANN MCP Server</Product>
-    <Copyright>Copyright (c) 2026 Hyland Software, Inc.</Copyright>
+    <Copyright>Copyright (c) 2026 Damon German</Copyright>
     <RepositoryUrl>https://github.com/d-german/leann-dotnet</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageReleaseNotes>Ignore patterns now support [...] bracket expressions, so the stock Visual Studio .gitignore actually excludes [Bb]in/ and [Oo]bj/. In-tree .leannignore files are honoured alongside .gitignore, and --ignore-file applies a workspace-wide ignore list across every repo. An LEANN_MODEL override of the default code model is now reported instead of applying silently.</PackageReleaseNotes>
   </PropertyGroup>
 </Project>

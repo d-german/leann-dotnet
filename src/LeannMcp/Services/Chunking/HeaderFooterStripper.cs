@@ -17,7 +17,7 @@ namespace LeannMcp.Services.Chunking;
 /// <c>Strip(Strip(x)) == Strip(x)</c>.
 /// <para/>
 /// User-reported defect D3 (footer leakage like
-/// "Hyland Clinician Window© Hyland Software, Inc. and its affiliates.202"
+/// "Product Guide (c) Example Corp. and its affiliates.202"
 /// embedded in body chunks) is what this addresses. Stripping these before
 /// embedding cleans the semantic vector and reduces near-duplicate noise.
 /// </summary>

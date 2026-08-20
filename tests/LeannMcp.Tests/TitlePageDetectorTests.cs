@@ -8,14 +8,14 @@ public sealed class TitlePageDetectorTests
 {
     // Real fixture from J:\.leann\indexes\mrg passage id=0
     private const string MrgTitlePageText = """
-        Hyland Software Product Documentation
+        Example Corp Product Documentation
         Downloaded by Damon German on 2026-04-25
         """;
 
     private const string RealIntroParagraph = """
-        This document describes the configuration and deployment of the Clinician
-        Window product. It assumes the reader is familiar with the OnBase platform
-        and the Hyland NilRead viewer. The remainder of the introduction enumerates
+        This document describes the configuration and deployment of the Example
+        Viewer product. It assumes the reader is familiar with the Example platform
+        and the Example image viewer. The remainder of the introduction enumerates
         the supported environments, version pairings, and licensing prerequisites
         that gate a successful production rollout.
         """;

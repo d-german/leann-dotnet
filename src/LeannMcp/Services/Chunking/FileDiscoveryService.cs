@@ -35,7 +35,8 @@ public sealed class FileDiscoveryService(
         var supportedExtensions = options.IncludeExtensions ?? FileExtensions.AllSupported;
         var documents = new List<SourceDocument>();
 
-        LoadGitIgnoreRecursive(filter, rootFull, rootFull);
+        LoadIgnoreFilesRecursive(filter, rootFull, rootFull);
+        LoadGlobalIgnoreFile(filter, options.GlobalIgnoreFile);
 
         if (options.ExcludePaths is { Count: > 0 } extra)
         {
@@ -100,31 +101,39 @@ public sealed class FileDiscoveryService(
 
     private SourceDocument? TryLoadDocument(string filePath, string relativePath)
     {
-        var ext = Path.GetExtension(filePath);
-        var reader = SelectReader(ext);
-        var readResult = reader.Read(filePath);
-        if (readResult.IsFailure)
+        try
         {
-            logger.LogWarning("Skipping {Path}: {Error}", filePath, readResult.Error);
+            var ext = Path.GetExtension(filePath);
+            var reader = SelectReader(ext);
+            var readResult = reader.Read(filePath);
+            if (readResult.IsFailure)
+            {
+                logger.LogWarning("Skipping {Path}: {Error}", filePath, readResult.Error);
+                return null;
+            }
+
+            var fileInfo = new FileInfo(filePath);
+            var language = FileExtensions.GetLanguage(ext);
+            var sourceType = reader is PdfDocumentReader ? "pdf" : "text";
+
+            return new SourceDocument
+            {
+                Content = readResult.Value,
+                FilePath = relativePath,
+                FileName = Path.GetFileName(filePath),
+                AbsolutePath = Path.GetFullPath(filePath),
+                CreationDate = fileInfo.CreationTimeUtc,
+                LastModifiedDate = fileInfo.LastWriteTimeUtc,
+                IsCode = language is not null,
+                Language = language,
+                SourceType = sourceType,
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Skipping {Path}: document reader threw unexpectedly", filePath);
             return null;
         }
-
-        var fileInfo = new FileInfo(filePath);
-        var language = FileExtensions.GetLanguage(ext);
-        var sourceType = reader is PdfDocumentReader ? "pdf" : "text";
-
-        return new SourceDocument
-        {
-            Content = readResult.Value,
-            FilePath = relativePath,
-            FileName = Path.GetFileName(filePath),
-            AbsolutePath = Path.GetFullPath(filePath),
-            CreationDate = fileInfo.CreationTimeUtc,
-            LastModifiedDate = fileInfo.LastWriteTimeUtc,
-            IsCode = language is not null,
-            Language = language,
-            SourceType = sourceType,
-        };
     }
 
     private IDocumentReader SelectReader(string extension)
@@ -140,18 +149,35 @@ public sealed class FileDiscoveryService(
         return _readers.OfType<PlainTextReader>().First();
     }
 
-    private static void LoadGitIgnoreRecursive(GitIgnoreFilter filter, string dir, string rootDir)
+    /// <summary>Ignore file names honoured at every directory level, in load order.</summary>
+    private static readonly string[] IgnoreFileNames = [".gitignore", ".leannignore"];
+
+    private static void LoadIgnoreFilesRecursive(GitIgnoreFilter filter, string dir, string rootDir)
     {
-        var gitignorePath = Path.Combine(dir, ".gitignore");
-        filter.LoadFromFile(gitignorePath, rootDir);
+        foreach (var ignoreFileName in IgnoreFileNames)
+            filter.LoadFromFile(Path.Combine(dir, ignoreFileName), rootDir);
 
         foreach (var subDir in EnumerateDirectoriesSafe(dir))
         {
             var dirName = Path.GetFileName(subDir);
             if (dirName.StartsWith('.')) continue;
 
-            LoadGitIgnoreRecursive(filter, subDir, rootDir);
+            LoadIgnoreFilesRecursive(filter, subDir, rootDir);
         }
+    }
+
+    /// <summary>
+    /// Applies a workspace-wide ignore file that lives outside the repository being
+    /// indexed. Its patterns are added unanchored, so they read as repo-relative
+    /// rather than being scoped to the file's own directory.
+    /// </summary>
+    private void LoadGlobalIgnoreFile(GitIgnoreFilter filter, string? globalIgnoreFile)
+    {
+        if (string.IsNullOrWhiteSpace(globalIgnoreFile) || !File.Exists(globalIgnoreFile))
+            return;
+
+        filter.AddPatterns(File.ReadLines(globalIgnoreFile));
+        logger.LogInformation("Applying workspace ignore file {Path}", globalIgnoreFile);
     }
 
     private static string GetRelativePath(string fullPath, string rootDir)
@@ -166,15 +192,17 @@ public sealed class FileDiscoveryService(
         return name.StartsWith('.') && name != "." && name != "..";
     }
 
-    private static IEnumerable<string> EnumerateFilesSafe(string dir)
+    private static string[] EnumerateFilesSafe(string dir)
     {
-        try { return Directory.EnumerateFiles(dir); }
+        // Directory.EnumerateFiles is lazy, so returning it from inside the
+        // try block lets access errors escape later during foreach.
+        try { return Directory.GetFiles(dir); }
         catch { return []; }
     }
 
-    private static IEnumerable<string> EnumerateDirectoriesSafe(string dir)
+    private static string[] EnumerateDirectoriesSafe(string dir)
     {
-        try { return Directory.EnumerateDirectories(dir); }
+        try { return Directory.GetDirectories(dir); }
         catch { return []; }
     }
 }

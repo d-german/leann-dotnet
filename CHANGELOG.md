@@ -1,5 +1,86 @@
 # Changelog
 
+## [2.7.1] - 2026-08-18
+
+### Added
+- **Diagram-as-code files are indexed**: `.puml`, `.plantuml`, `.iuml`, `.mmd`,
+  `.mermaid`, `.dot`, `.gv`. These are plain text describing how services fit
+  together, which answers architecture questions better than most source files.
+  Previously a repository of PlantUML diagrams indexed almost nothing.
+
+## [2.7.0] - 2026-08-18
+
+### Fixed
+- **Bracket expressions in ignore patterns.** The glob matcher handled only `*`,
+  `**` and `?`, so `[Oo]bj/` was compared as the literal characters `[`, `O`, `o`,
+  `]` and never matched. Since that is the pattern the stock Visual Studio
+  `.gitignore` ships, every .NET repository was indexing its own build output.
+  `[...]` now supports members, `a-z` ranges, `!`/`^` negation, a leading `]` as a
+  literal member, and falls back to literal matching for an unmatched `[`.
+- **`.leannignore` was never read.** Only `.gitignore` was loaded. In-tree
+  `.leannignore` files are now honoured at every directory level, so an ignore
+  list written for search does not have to be smuggled into version control rules.
+
+### Added
+- **`--ignore-file PATH`** applies a workspace-wide ignore list to every indexed
+  repository, defaulting to `<data-root>/.leannignore` when present. Patterns are
+  repo-relative and take precedence over in-tree rules, so a multi-repo workspace
+  excludes noise once instead of editing each repository. Also threaded through
+  watch mode.
+
+### Changed
+- **An `LEANN_MODEL` override is now reported on stderr.** The registry default is
+  the code model, but a persistent environment variable could silently redirect
+  every build to a general-purpose text model. Because both models are 768
+  dimensions, the index compatibility guard could not detect it and indexes were
+  internally consistent while being uniformly wrong. Overrides and unknown model
+  ids now announce themselves at the point where indexes are built.
+
+## [2.5.7]
+
+### Fixed
+- **PDF parsing failures are isolated to the affected file**, including failures raised
+  lazily while materializing pages and fonts, so one malformed document no longer aborts
+  an index build.
+- **File discovery and the repository watch loop isolate unexpected failures**, so the
+  remaining files and repositories continue processing.
+- **Watch-mode pulls are fast-forward-only.** Diverged or dirty checkouts are reported
+  instead of creating an implicit merge or indexing an unsynchronized checkout.
+
+## [2.6.0] - 2026-08-18
+
+### Added
+- **Search without an MCP client.** Three new CLI modes expose the existing
+  search engine directly, so callers that cannot run an MCP server (agent
+  skills, scripts, CI) get the same results:
+  - `--list` prints available index names. Never loads a model, so it is instant.
+  - `--search --index NAME --query TEXT` runs a one-shot search. Supports
+    `--top-k`, `--complexity`, `--dedup-threshold`, `--show-metadata` and `--json`.
+  - `--serve` hosts a resident localhost HTTP daemon on port 57391 (`--port` to
+    override) with routes `/health`, `/list`, `/search`, `/warmup` and `/shutdown`.
+    Add `format=json` for machine-readable output.
+- **`--indexes-dir` / `--data-root`** pin the index location for the three modes
+  above, independent of `LEANN_DATA_ROOT` and the working directory.
+
+### Why --serve exists
+`IndexManager` caches each loaded index together with its ONNX session, so the
+cost of model load is paid per process, not per search. A one-shot `--search`
+therefore pays it every time (measured 5.0s), while a warm daemon answers in
+0.2 to 0.3s. That warmth was previously reachable only by keeping the MCP server
+resident; `--serve` provides it over plain HTTP.
+
+`HttpListener` was chosen over Kestrel deliberately: it is in the BCL, so the
+packaged dotnet tool remains a plain console app with no `FrameworkReference` on
+`Microsoft.AspNetCore.App` and therefore no ASP.NET Core runtime prerequisite.
+Binding `http://localhost:PORT/` requires neither elevation nor a netsh URL
+reservation.
+
+### Changed
+- Search result rendering moved to a shared `SearchResultFormatter`. The MCP
+  `leann_search` tool now delegates to it, so MCP, CLI and daemon output cannot
+  drift apart. Empty result sets now report `No results for '<query>'.` instead
+  of a `(top 0)` header.
+
 ## [2.5.6] — 2026-05-08
 
 ### Added
@@ -147,7 +228,7 @@
   (RunMcpServer / RunWatch / RunBuildPassages / RunBuildIndexes).
 
 ### Quality validation (T18)
-Built a full index of `C:\OnBase.NET` (40,133 files → 801,078 passages, 768d, 44 min on
+Built a full index of a large .NET monorepo (40,133 files → 801,078 passages, 768d, 44 min on
 NVIDIA RTX PRO 1000 / DirectML) and ran 5 baseline queries. Top-10 relevance vs the
 contriever baseline (Q1 was 1/10 with contriever):
 
@@ -156,8 +237,8 @@ contriever baseline (Q1 was 1/10 with contriever):
 | "how does document scanning work" | **7-8 / 10** (RescanProcess, ScanCommand, ScanAndSweepStorage) |
 | "OCR text extraction" | 6-7 / 10 (OmniPageEngine, OCRWorker, OcrWorkerManager) |
 | "workflow approval logic" | 3-4 / 10 (WorkflowSOAProvider, Workflow.Cca/LifeCycleAnalyzer) |
-| "PDF rendering" | 2-3 / 10 (mostly Web.config — likely reflects sparse PDF rendering code in OnBase) |
-| "user authentication and login" | 1-2 / 10 (returned FullText files — OnBase delegates auth externally) |
+| "PDF rendering" | 2-3 / 10 (mostly Web.config — likely reflects sparse PDF rendering code in that repo) |
+| "user authentication and login" | 1-2 / 10 (returned FullText files — that product delegates auth externally) |
 
 The dramatic Q1 jump (1 → 7-8) is the headline validation. Q4/Q5 low scores plausibly
 reflect content absence, not embedding quality.

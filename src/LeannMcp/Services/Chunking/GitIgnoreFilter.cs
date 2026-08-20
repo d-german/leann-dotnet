@@ -1,8 +1,8 @@
 namespace LeannMcp.Services.Chunking;
 
 /// <summary>
-/// Lightweight .gitignore pattern matcher.
-/// Reads .gitignore files at each directory level and checks paths against accumulated patterns.
+/// Lightweight gitignore-style pattern matcher.
+/// Reads ignore files at each directory level and checks paths against accumulated patterns.
 /// </summary>
 public sealed class GitIgnoreFilter
 {
@@ -25,7 +25,7 @@ public sealed class GitIgnoreFilter
 
     /// <summary>
     /// Adds gitignore-style patterns from any source (e.g. CLI --exclude-paths).
-    /// Patterns support **, *, ?, leading ! for negation, and trailing / for directory-only.
+    /// Patterns support **, *, ?, [...] classes, leading ! for negation, and trailing / for directory-only.
     /// </summary>
     public void AddPatterns(IEnumerable<string> patterns) => AddPatterns(patterns, basePath: "");
 
@@ -82,7 +82,7 @@ public sealed class GitIgnoreFilter
     }
 
     /// <summary>
-    /// Simple glob matcher supporting *, **, and ? wildcards.
+    /// Glob matcher supporting *, **, ? and [...] bracket expressions.
     /// </summary>
     internal static bool MatchesGlob(string path, string pattern)
     {
@@ -142,6 +142,21 @@ public sealed class GitIgnoreFilter
                 return false;
             }
 
+            if (pattern[pi] == '[')
+            {
+                // A well-formed class consumes exactly one character of input.
+                // An unmatched '[' is not a class at all, so fall through and
+                // treat it as a literal, which is what fnmatch and git do.
+                var classMatched = MatchCharClass(pattern, pi, text[ti], out var afterClass);
+                if (classMatched is not null)
+                {
+                    if (!classMatched.Value) return false;
+                    pi = afterClass;
+                    ti++;
+                    continue;
+                }
+            }
+
             if (pattern[pi] == '?' || pattern[pi] == text[ti])
             {
                 pi++;
@@ -157,5 +172,60 @@ public sealed class GitIgnoreFilter
         while (pi < pattern.Length && pattern[pi] == '*') pi++;
 
         return ti == text.Length && pi == pattern.Length;
+    }
+
+    /// <summary>
+    /// Matches a bracket expression such as <c>[Oo]</c>, <c>[a-z]</c> or <c>[!0-9]</c>
+    /// against a single character. This is what makes the stock Visual Studio
+    /// .gitignore work: it excludes build output as <c>[Bb]in/</c> and <c>[Oo]bj/</c>,
+    /// which a wildcard-only matcher silently fails to match.
+    /// </summary>
+    /// <returns>
+    /// True or false when <paramref name="openIndex"/> starts a well-formed class,
+    /// and null when it does not (an unmatched '[' is a literal character).
+    /// </returns>
+    private static bool? MatchCharClass(string pattern, int openIndex, char value, out int nextIndex)
+    {
+        nextIndex = openIndex;
+
+        var close = FindClosingBracket(pattern, openIndex);
+        if (close < 0) return null;
+
+        var index = openIndex + 1;
+        var negated = pattern[index] is '!' or '^';
+        if (negated) index++;
+
+        var matched = false;
+        while (index < close)
+        {
+            // A '-' between two members denotes an inclusive range, unless it is
+            // the final character before ']', where it is a literal.
+            if (index + 2 < close && pattern[index + 1] == '-')
+            {
+                if (value >= pattern[index] && value <= pattern[index + 2]) matched = true;
+                index += 3;
+                continue;
+            }
+
+            if (pattern[index] == value) matched = true;
+            index++;
+        }
+
+        nextIndex = close + 1;
+        return matched != negated;
+    }
+
+    private static int FindClosingBracket(string pattern, int openIndex)
+    {
+        var index = openIndex + 1;
+
+        // A leading '!' or '^' negates, and a ']' immediately after that is a
+        // literal member rather than the terminator.
+        if (index < pattern.Length && pattern[index] is '!' or '^') index++;
+        if (index < pattern.Length && pattern[index] == ']') index++;
+
+        while (index < pattern.Length && pattern[index] != ']') index++;
+
+        return index < pattern.Length ? index : -1;
     }
 }

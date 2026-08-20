@@ -19,7 +19,8 @@ public sealed class RepoWatcherService(
     string configPath,
     int intervalSeconds,
     string indexesDir,
-    bool forceInitialRebuild = false) : BackgroundService
+    bool forceInitialRebuild = false,
+    string? globalIgnoreFile = null) : BackgroundService
 {
     private bool _forceNextScan = forceInitialRebuild;
 
@@ -66,7 +67,22 @@ public sealed class RepoWatcherService(
         {
             if (ct.IsCancellationRequested) break;
 
-            var result = await CheckAndRebuildRepo(repo, ct);
+            Result<bool> result;
+            try
+            {
+                result = await CheckAndRebuildRepo(repo, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "[{Index}] Unexpected rebuild failure; continuing with remaining repositories", repo.IndexName);
+                errored++;
+                continue;
+            }
+
             if (result.IsFailure)
             {
                 logger.LogWarning("[{Index}] Skipped: {Error}", repo.IndexName, result.Error);
@@ -133,13 +149,7 @@ public sealed class RepoWatcherService(
             logger.LogInformation("[{Index}] Changes detected, pulling {Branch}...", repo.IndexName, repo.Branch);
             var pullResult = await GitService.PullAsync(repo.Folder, repo.Branch);
             if (pullResult.IsFailure)
-            {
-                logger.LogWarning("[{Index}] Pull failed: {Error}. Attempting reset...", repo.IndexName, pullResult.Error);
-                // Try hard reset as fallback
-                var resetResult = await GitService.FetchAsync(repo.Folder, repo.Branch);
-                if (resetResult.IsFailure)
-                    return Result.Failure<bool>($"Pull and fetch both failed for {repo.IndexName}");
-            }
+                return Result.Failure<bool>($"Pull failed: {pullResult.Error}");
         }
         else
         {
@@ -205,7 +215,7 @@ public sealed class RepoWatcherService(
         return Result.Success();
     }
 
-    private static ChunkingOptions BuildOptionsFor(RepoEntry repo)
+    private ChunkingOptions BuildOptionsFor(RepoEntry repo)
     {
         IReadOnlySet<string>? extensions = null;
         if (repo.FileTypes is { Count: > 0 })
@@ -226,6 +236,7 @@ public sealed class RepoWatcherService(
             ExcludePaths = repo.ExcludePaths is { Count: > 0 } ? repo.ExcludePaths : null,
             CodeChunkSize = repo.CodeChunkSize ?? 512,
             CodeChunkOverlap = repo.CodeChunkOverlap ?? 64,
+            GlobalIgnoreFile = globalIgnoreFile,
             UseAst = repo.UseAst ?? true,
         };
     }

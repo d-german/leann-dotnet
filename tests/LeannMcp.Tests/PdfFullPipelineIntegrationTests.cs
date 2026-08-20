@@ -17,7 +17,7 @@ namespace LeannMcp.Tests;
 /// </summary>
 public class PdfFullPipelineIntegrationTests
 {
-    private const string Footer = "Hyland Clinician Window © Hyland Software, Inc. 2024";
+    private const string Footer = "Example Product Guide © Example Corp. 2024";
     private const string Heading = "Section 1: Overview";
 
     private static PdfChunkingPipeline CreatePipeline()
@@ -59,7 +59,7 @@ public class PdfFullPipelineIntegrationTests
 
             // T07: boilerplate footer stripped from every chunk.
             foreach (var p in passages)
-                Assert.DoesNotContain("Hyland", p.Text);
+                Assert.DoesNotContain("Example Product Guide", p.Text);
 
             // T09: no page markers leak.
             foreach (var p in passages)

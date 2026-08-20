@@ -125,4 +125,29 @@ public class PdfDocumentReaderTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void AllReadModes_PageMaterializationFailure_ReturnFailureWithoutThrowing()
+    {
+        var path = PdfFixtureBuilder.WriteTempPdf(PdfFixtureBuilder.BuildPdfWithLazyFontFailure());
+        try
+        {
+            var reader = CreateReader();
+
+            var flat = reader.Read(path);
+            var structured = reader.ReadStructured(path);
+            var layout = reader.ReadLayout(path);
+
+            Assert.True(flat.IsFailure);
+            Assert.True(structured.IsFailure);
+            Assert.True(layout.IsFailure);
+            Assert.StartsWith("Failed to read PDF:", flat.Error);
+            Assert.StartsWith("Failed to read PDF:", structured.Error);
+            Assert.StartsWith("Failed to read PDF:", layout.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

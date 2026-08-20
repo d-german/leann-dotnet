@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using System.Linq;
+using CSharpFunctionalExtensions;
 using LeannMcp.Models;
 using LeannMcp.Services.Chunking;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -98,7 +99,8 @@ public class FileDiscoveryServicePdfTests
             Assert.NotEmpty(chunkResult.Value);
             foreach (var passage in chunkResult.Value)
             {
-                Assert.True(passage.Metadata.TryGetValue("source_type", out var st));
+                Assert.NotNull(passage.Metadata);
+                Assert.True(passage.Metadata!.TryGetValue("source_type", out var st));
                 Assert.Equal("pdf", st.GetString()!);
             }
         }
@@ -106,5 +108,64 @@ public class FileDiscoveryServicePdfTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void DiscoverFiles_PdfPageMaterializationFailure_IsSkippedWithoutAbortingDiscovery()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            File.WriteAllBytes(
+                Path.Combine(dir, "lazy-failure.pdf"),
+                PdfFixtureBuilder.BuildPdfWithLazyFontFailure());
+            File.WriteAllText(Path.Combine(dir, "notes.md"), "# Still discovered");
+
+            var result = CreateDiscovery().DiscoverFiles(dir, new ChunkingOptions());
+
+            Assert.True(result.IsSuccess);
+            var document = Assert.Single(result.Value);
+            Assert.Equal("notes.md", document.FileName);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiscoverFiles_ReaderThrows_IsSkippedWithoutAbortingDiscovery()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "broken.boom"), "reader will throw");
+            File.WriteAllText(Path.Combine(dir, "notes.md"), "# Still discovered");
+            var discovery = new FileDiscoveryService(
+                NullLogger<FileDiscoveryService>.Instance,
+                new IDocumentReader[] { new ThrowingReader(), new PlainTextReader() });
+            var options = new ChunkingOptions
+            {
+                IncludeExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".boom", ".md" },
+            };
+
+            var result = discovery.DiscoverFiles(dir, options);
+
+            Assert.True(result.IsSuccess);
+            var document = Assert.Single(result.Value);
+            Assert.Equal("notes.md", document.FileName);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private sealed class ThrowingReader : IDocumentReader
+    {
+        public bool CanHandle(string extension) => extension == ".boom";
+
+        public Result<string> Read(string filePath) =>
+            throw new InvalidOperationException("Synthetic reader failure");
     }
 }

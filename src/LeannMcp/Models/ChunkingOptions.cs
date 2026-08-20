@@ -65,6 +65,15 @@ public sealed record ChunkingOptions
     public IReadOnlyList<string>? ExcludePaths { get; init; }
 
     /// <summary>
+    /// Optional workspace-wide ignore file (CLI <c>--ignore-file</c>, defaulting to
+    /// <c>&lt;data-root&gt;/.leannignore</c>). Its patterns are repo-relative and are
+    /// applied after every in-tree ignore file, so a workspace rule wins over a
+    /// repository one. Lets a multi-repo workspace exclude noise such as build
+    /// output once instead of editing every repository.
+    /// </summary>
+    public string? GlobalIgnoreFile { get; init; }
+
+    /// <summary>
     /// When true (default), code files are chunked using AST-aware strategies:
     /// Roslyn for C#, brace-balanced for TS/JS/Java/C-family. When false, falls
     /// back to the line-based sliding-window chunker for all code files. CLI

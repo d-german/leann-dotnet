@@ -8,7 +8,7 @@ namespace LeannMcp.Services.Chunking;
 /// Such pages survive <see cref="HeaderFooterStripper"/> because they appear once
 /// (not per page) and survive <see cref="TocPageDetector"/> because they are too
 /// short to look like a TOC; they then get embedded as their own passage and add
-/// pure noise to retrieval — see mrg id=0 ("Hyland Software Product Documentation
+/// pure noise to retrieval — see mrg id=0 ("Example Corp Product Documentation
 /// / Downloaded by Damon German on 2026-04-25").
 ///
 /// Strictly page-1-only. A page qualifies when EITHER:

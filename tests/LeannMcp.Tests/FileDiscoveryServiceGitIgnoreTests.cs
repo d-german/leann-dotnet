@@ -50,12 +50,30 @@ public sealed class FileDiscoveryServiceGitIgnoreTests : IDisposable
         Assert.Contains(docs, d => d.FilePath == "other/Keep.cs");
     }
 
-    private IReadOnlyList<SourceDocument> Discover()
+    [Fact]
+    public void DiscoverFiles_ExactRootRelativeExcludePath_IsApplied()
+    {
+        var documents = Directory.CreateDirectory(Path.Combine(_root, "src", "TestHost", "documents")).FullName;
+        File.WriteAllText(Path.Combine(documents, "pdf.pdf"), "skip");
+        File.WriteAllText(Path.Combine(_root, "keep.md"), "keep");
+        var options = new ChunkingOptions
+        {
+            IncludeExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".md" },
+            ExcludePaths = ["src/TestHost/documents/pdf.pdf"],
+        };
+
+        var docs = Discover(options);
+
+        var document = Assert.Single(docs);
+        Assert.Equal("keep.md", document.FilePath);
+    }
+
+    private IReadOnlyList<SourceDocument> Discover(ChunkingOptions? options = null)
     {
         var discovery = new FileDiscoveryService(
             NullLogger<FileDiscoveryService>.Instance,
             new IDocumentReader[] { new PlainTextReader() });
-        var result = discovery.DiscoverFiles(_root, new ChunkingOptions());
+        var result = discovery.DiscoverFiles(_root, options ?? new ChunkingOptions());
         Assert.True(result.IsSuccess, result.IsFailure ? result.Error : "");
         return result.Value;
     }

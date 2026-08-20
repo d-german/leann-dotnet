@@ -37,56 +37,56 @@ public sealed class PdfDocumentReader(ILogger<PdfDocumentReader> logger)
             .TapError(error => logger.LogWarning("PDF skipped: {Path}: {Error}", filePath, error));
 
     public Result<IReadOnlyList<(int PageNumber, IReadOnlyList<PageLine> Lines)>> ReadLayout(string filePath) =>
-        TryOpen(filePath)
-            .Map(ExtractLayout)
+        ReadPdf(filePath, ExtractLayout)
             .TapError(error => logger.LogWarning("PDF layout skipped: {Path}: {Error}", filePath, error));
 
     private static Result<IReadOnlyList<PageSegment>> ReadPages(string filePath) =>
-        TryOpen(filePath).Map(ExtractPages);
+        ReadPdf(filePath, ExtractPages);
 
-    private static Result<PdfDocument> TryOpen(string filePath)
+    /// <summary>
+    /// PdfPig parses parts of a document lazily, so opening a PDF successfully
+    /// does not guarantee that materializing its pages or fonts will succeed.
+    /// Keep the document lifetime and the entire extraction operation inside
+    /// one exception boundary.
+    /// </summary>
+    private static Result<T> ReadPdf<T>(string filePath, Func<PdfDocument, T> extract)
     {
         try
         {
-            return Result.Success(PdfDocument.Open(filePath));
+            using var document = PdfDocument.Open(filePath);
+            return Result.Success(extract(document));
         }
         catch (PdfDocumentEncryptedException ex)
         {
-            return Result.Failure<PdfDocument>($"PDF is encrypted: {ex.Message}");
+            return Result.Failure<T>($"PDF is encrypted: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return Result.Failure<PdfDocument>($"Failed to open PDF: {ex.Message}");
+            return Result.Failure<T>($"Failed to read PDF: {ex.Message}");
         }
     }
 
     private static IReadOnlyList<PageSegment> ExtractPages(PdfDocument doc)
     {
-        using (doc)
+        var pages = new List<PageSegment>(doc.NumberOfPages);
+        foreach (Page page in doc.GetPages())
         {
-            var pages = new List<PageSegment>(doc.NumberOfPages);
-            foreach (Page page in doc.GetPages())
-            {
-                var lines = PdfPageLineExtractor.Extract(page);
-                var text = string.Join('\n', lines.Select(l => l.Text));
-                pages.Add(new PageSegment(page.Number, text));
-            }
-            return pages;
+            var lines = PdfPageLineExtractor.Extract(page);
+            var text = string.Join('\n', lines.Select(l => l.Text));
+            pages.Add(new PageSegment(page.Number, text));
         }
+        return pages;
     }
 
     private static IReadOnlyList<(int PageNumber, IReadOnlyList<PageLine> Lines)> ExtractLayout(PdfDocument doc)
     {
-        using (doc)
+        var layouts = new List<(int, IReadOnlyList<PageLine>)>(doc.NumberOfPages);
+        foreach (Page page in doc.GetPages())
         {
-            var layouts = new List<(int, IReadOnlyList<PageLine>)>(doc.NumberOfPages);
-            foreach (Page page in doc.GetPages())
-            {
-                var lines = PdfPageLineExtractor.Extract(page);
-                layouts.Add((page.Number, lines));
-            }
-            return layouts;
+            var lines = PdfPageLineExtractor.Extract(page);
+            layouts.Add((page.Number, lines));
         }
+        return layouts;
     }
 
     private static string JoinPagesWithMarkers(IReadOnlyList<PageSegment> pages)

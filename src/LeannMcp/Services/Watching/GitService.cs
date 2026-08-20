@@ -31,7 +31,9 @@ public static class GitService
 
     public static async Task<Result> PullAsync(string repoPath, string branch)
     {
-        var result = await RunGitCommandAsync(repoPath, $"pull origin {branch}");
+        // The watcher must never create an implicit merge commit in a monitored
+        // checkout. A diverged or dirty repository is reported to the caller.
+        var result = await RunGitCommandAsync(repoPath, $"pull --ff-only origin {branch}");
         return result.IsSuccess ? Result.Success() : Result.Failure($"git pull failed: {result.Error}");
     }
 

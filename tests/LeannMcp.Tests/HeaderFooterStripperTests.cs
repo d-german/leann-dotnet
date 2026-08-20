@@ -17,17 +17,17 @@ public class HeaderFooterStripperTests
         // Footer appears on 4/5 pages (80% >= 30% threshold).
         var pages = new[]
         {
-            Page(1, "Body of page 1.\nHyland Clinician Window © 2024"),
-            Page(2, "Body of page 2.\nHyland Clinician Window © 2024"),
-            Page(3, "Different body 3.\nHyland Clinician Window © 2024"),
-            Page(4, "Page 4 content.\nHyland Clinician Window © 2024"),
+            Page(1, "Body of page 1.\nExample Product Guide © 2024"),
+            Page(2, "Body of page 2.\nExample Product Guide © 2024"),
+            Page(3, "Different body 3.\nExample Product Guide © 2024"),
+            Page(4, "Page 4 content.\nExample Product Guide © 2024"),
             Page(5, "Page 5 unique."),
         };
 
         var stripped = HeaderFooterStripper.Strip(pages, repeatRatio: 0.30);
 
         foreach (var p in stripped)
-            Assert.DoesNotContain("Hyland", p.Text);
+            Assert.DoesNotContain("Example Product Guide", p.Text);
         Assert.Contains("Body of page 1.", stripped[0].Text);
     }
 

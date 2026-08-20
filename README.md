@@ -47,6 +47,9 @@ leann-dotnet --setup                                  # downloads the default ji
 # or explicitly:
 leann-dotnet --setup --model jinaai/jina-embeddings-v2-base-code
 leann-dotnet --setup --model facebook/contriever     # legacy 418 MB English-prose model
+
+# Existing installation:
+dotnet tool update -g leann-dotnet
 ```
 
 The model is extracted to `~/.leann/models/<sanitized-id>/` and is idempotent (re-running `--setup` is a no-op once the SHA256 marker is present; pass `--force` to re-download).
@@ -64,6 +67,20 @@ dotnet publish src/LeannMcp -r win-x64 --self-contained -c Release -o publish/wi
 > **Forgot `git lfs install`?** Run `git lfs pull` to download `model.onnx`.
 >
 > **Note:** `leann-dotnet` is both the NuGet package id and the installed command name. After `dotnet tool install -g leann-dotnet` the `leann-dotnet` executable is on your `PATH` and is what every example below invokes.
+
+### What's new in 2.7.0
+
+- **Search without an MCP client.** `--list`, `--search`, and `--serve` expose the
+  search engine directly. `--serve` hosts a resident localhost HTTP daemon that keeps
+  the embedding model and loaded indexes warm, turning a 5s cold search into 0.2s.
+- **Bracket expressions in ignore patterns.** `[Oo]bj/` and `[Bb]in/` from the stock
+  Visual Studio `.gitignore` now match. Previously they were compared literally, so
+  every .NET repository indexed its own build output.
+- **`.leannignore` is honoured** at every directory level alongside `.gitignore`, and
+  `--ignore-file` applies a workspace-wide ignore list to every indexed repo.
+- **`LEANN_MODEL` overrides are reported on stderr.** The default is the code model;
+  a general-purpose text model there degrades code retrieval, and because both models
+  are 768-dimensional the compatibility guard cannot detect the swap.
 
 ### Index Your Code
 
@@ -191,6 +208,9 @@ From your MCP client, use these tools:
 | **Chunk** | `leann-dotnet --build-passages` | Split source files into passages |
 | **Embed** | `leann-dotnet --build-indexes` | Compute embeddings for passages |
 | **Full Pipeline** | `leann-dotnet --rebuild` | Chunk + embed in one step |
+| **List** | `leann-dotnet --list` | List available indexes (never loads a model) |
+| **Search** | `leann-dotnet --search` | One-shot semantic search from the CLI |
+| **Serve** | `leann-dotnet --serve` | Resident search daemon over localhost HTTP |
 | **Watch** | `leann-dotnet --watch` | Auto-sync git repos and rebuild on changes |
 | **Setup** | `leann-dotnet --setup [--model ID] [--force]` | Download ONNX model (~282 MB jina, ~418 MB contriever; one-time per model) |
 
@@ -206,7 +226,8 @@ From your MCP client, use these tools:
 | `--code-chunk-overlap N` | Code chunk overlap | 64 |
 | `--include-hidden` | Include hidden files/dirs | false |
 | `--file-types EXT [EXT...]` | Whitelist of extensions (e.g. `.cs .csproj` or `.cs,.csproj`). When set, overrides the built-in extension defaults | (built-in defaults) |
-| `--exclude-paths PAT [PAT...]` | Gitignore-style globs to skip (e.g. `"**/Tests/**" "**/Mocks/**"`). Supports `**`, `*`, `?`. Combined with any `.gitignore` files found in the tree | (none) |
+| `--exclude-paths PAT [PAT...]` | Gitignore-style globs to skip (e.g. `"**/Tests/**" "**/Mocks/**"`). Supports `**`, `*`, `?`, `[...]`. Combined with any `.gitignore` and `.leannignore` files found in the tree | (none) |
+| `--ignore-file PATH` | Workspace-wide ignore file applied to every indexed repo. Gitignore syntax, patterns are repo-relative, and it takes precedence over in-tree rules | `<data-root>/.leannignore` when present |
 | `--no-ast` | Disable AST-aware code chunking (Roslyn for C#, brace-balanced for TS/JS/Java/C-family, indentation for Python) and fall back to the legacy line-based sliding-window chunker | false (AST enabled) |
 | `--force` | Overwrite existing passages | false |
 
@@ -219,6 +240,29 @@ From your MCP client, use these tools:
 | `--exclude NAME [...]` | Skip specified indexes | — |
 | `--batch-size N` | Passages per GPU batch | 32 |
 | `--max-tokens N` | Max token sequence length | 512 |
+
+### Search & Serve Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--index NAME` | Index to search (`--search`) | required |
+| `--query TEXT` | Natural-language or technical query (`--search`) | required |
+| `--top-k N` | Results to return | 5 |
+| `--complexity N` | Candidate depth before fusion and dedup | 32 |
+| `--dedup-threshold R` | Near-duplicate cosine cutoff; 0 disables | 0.95 |
+| `--show-metadata` | Include file paths in `--search` output | off |
+| `--json` | Emit JSON from `--search` | off |
+| `--port N` | Listen port for `--serve` (localhost only) | 57391 |
+| `--no-warmup` | Skip the model preload when `--serve` starts | off |
+| `--indexes-dir PATH` | Exact indexes directory (wins over `--data-root`) | — |
+| `--data-root PATH` | Base directory; `.leann/indexes` is appended | `LEANN_DATA_ROOT` or cwd |
+
+Daemon routes, all GET and bound to localhost: `/health`, `/list`, `/warmup`,
+`/search?index=&query=`, `/shutdown`. Add `format=json` to `/list` or `/search`.
+Optional search parameters: `top_k`, `complexity`, `dedup_threshold`, `show_metadata`.
+
+Each `--search` invocation loads the embedding model from scratch; `--serve` pays
+that once and keeps every loaded index resident.
 
 ### Watch Mode Flags
 
@@ -237,10 +281,10 @@ Each entry supports optional per-repo filters and chunking overrides:
   "intervalSeconds": 300,
   "repos": [
     {
-      "folder": "C:\\OnBase.NET",
-      "gitUrl": "git@github.com:org/OnBase.NET.git",
+      "folder": "C:\\BigRepo",
+      "gitUrl": "git@github.com:org/BigRepo.git",
       "branch": "main",
-      "indexName": "onbase-dotnet",
+      "indexName": "bigrepo",
       "enabled": true,
 
       // Optional — same semantics as the CLI flags
@@ -335,7 +379,7 @@ Starting in **2.2.0**, `.pdf` files are first-class citizens of the index alongs
 
 - **Scanned / image-only PDFs** — these contain no embedded text. PdfPig will return zero text for affected pages and the file will be indexed as an empty document. There is no built-in OCR. If you need OCR, pre-extract with a tool like Tesseract or `pdftotext` (Poppler) and index the resulting `.txt`/`.md` instead.
 - **Encrypted / password-protected PDFs** — these are skipped with a `warn`-level log message; the build continues with the remaining files.
-- **Corrupt PDFs** — same skip-with-warning behavior. One bad file in a 5,000-file repo will not abort the run.
+- **Corrupt or unsupported PDFs** — malformed files and PdfPig parsing limitations, including errors raised while pages or embedded fonts are loaded, use the same skip-with-warning behavior. One bad file in a 5,000-file repo will not abort the run.
 
 ```bash
 # Mixed code + PDF index
@@ -347,7 +391,7 @@ leann-dotnet --rebuild --docs C:\projects\my-app C:\docs\architecture --index-na
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LEANN_DATA_ROOT` | Directory containing `.leann/indexes/` | Current working directory |
-| `LEANN_MODEL` | Default model id for setup, passage building, rebuilds, and watch-mode rebuilds when no `--model` flag is given. **Not** a query-time override — query routing is automatic per index. | `jinaai/jina-embeddings-v2-base-code` |
+| `LEANN_MODEL` | Default model id for setup, passage building, rebuilds, and watch-mode rebuilds when no `--model` flag is given. **Not** a query-time override — query routing is automatic per index. Setting this to a non-code model is reported on stderr, because it silently degrades code retrieval and the 768-dimension compatibility guard cannot detect it. | `jinaai/jina-embeddings-v2-base-code` |
 | `LEANN_MODEL_DIR` | Override the model directory location (rarely needed; computed from the user profile + sanitized model id by default) | `~/.leann/models/<sanitized-id>` |
 | `LEANN_FORCE_CPU` | Set to `1` or `true` to disable GPU acceleration | (GPU enabled) |
 

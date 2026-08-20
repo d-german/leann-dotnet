@@ -1,5 +1,6 @@
 ﻿using LeannMcp.Models;
 using CSharpFunctionalExtensions;
+using LeannMcp.Cli;
 using LeannMcp.Services;
 using LeannMcp.Services.Chunking;
 using LeannMcp.Services.Watching;
@@ -84,6 +85,21 @@ if (args.Contains("--rebuild"))
         indexArgs.Add(indexArgs[nameIdx + 1]);
     }
     return await RunBuildIndexes(indexArgs.ToArray());
+}
+
+if (args.Contains("--list"))
+{
+    return RunList(args);
+}
+
+if (args.Contains("--search"))
+{
+    return RunSearch(args);
+}
+
+if (args.Contains("--serve"))
+{
+    return await RunServe(args);
 }
 
 if (args.Contains("--watch"))
@@ -183,7 +199,8 @@ static async Task<int> RunWatch(string[] args)
         configPath,
         intervalSeconds,
         indexesDir,
-        forceInitialRebuild: force));
+        forceInitialRebuild: force,
+        globalIgnoreFile: ResolveGlobalIgnoreFile(args)));
 
     await builder.Build().RunAsync();
     return 0;
@@ -223,6 +240,7 @@ static int RunBuildPassages(string[] args)
         IncludeHidden = args.Contains("--include-hidden"),
         IncludeExtensions = ParseFileTypesArg(args),
         ExcludePaths = ParseExcludePathsArg(args),
+        GlobalIgnoreFile = ResolveGlobalIgnoreFile(args),
         UseAst = !args.Contains("--no-ast"),
     };
 
@@ -368,6 +386,107 @@ static async Task<int> RunBuildIndexes(string[] args)
     return 0;
 }
 
+// -- List Mode --
+
+static int RunList(string[] args)
+{
+    var indexesDir = ResolveIndexesDir(args);
+    using var provider = SearchServices.Build(indexesDir, ParseIntArg(args, "--max-tokens", 512), LogLevel.Warning);
+
+    var result = provider.GetRequiredService<IndexManager>().ListIndexes();
+    if (result.IsFailure)
+    {
+        Console.Error.WriteLine($"ERROR: {result.Error}");
+        return 1;
+    }
+
+    if (result.Value.Count == 0)
+    {
+        Console.Error.WriteLine($"No indexes found in {indexesDir}");
+        return 0;
+    }
+
+    foreach (var name in result.Value)
+        Console.WriteLine(name);
+
+    return 0;
+}
+
+// -- Search Mode --
+
+static int RunSearch(string[] args)
+{
+    var indexName = ParseStringArg(args, "--index");
+    var query = ParseStringArg(args, "--query");
+
+    if (string.IsNullOrWhiteSpace(indexName) || string.IsNullOrWhiteSpace(query))
+    {
+        Console.Error.WriteLine("ERROR: --search requires --index <name> and --query <text>.");
+        Console.Error.WriteLine("Run --list to see available indexes.");
+        return 1;
+    }
+
+    var indexesDir = ResolveIndexesDir(args);
+    using var provider = SearchServices.Build(indexesDir, ParseIntArg(args, "--max-tokens", 512), LogLevel.Warning);
+
+    var result = provider.GetRequiredService<IndexManager>().Search(
+        indexName,
+        query,
+        ParseIntArg(args, "--top-k", 5),
+        ParseIntArg(args, "--complexity", 32),
+        ParseDoubleArg(args, "--dedup-threshold", 0.95));
+
+    if (result.IsFailure)
+    {
+        Console.Error.WriteLine($"ERROR: {result.Error}");
+        return 1;
+    }
+
+    var showMetadata = args.Contains("--show-metadata");
+    Console.WriteLine(args.Contains("--json")
+        ? SearchResultFormatter.ToJson(query, result.Value, showMetadata)
+        : SearchResultFormatter.ToText(query, result.Value, showMetadata));
+
+    return 0;
+}
+
+// -- Serve Mode --
+
+static async Task<int> RunServe(string[] args)
+{
+    var indexesDir = ResolveIndexesDir(args);
+    using var provider = SearchServices.Build(indexesDir, ParseIntArg(args, "--max-tokens", 512), LogLevel.Warning);
+
+    var daemon = new SearchDaemon(provider.GetRequiredService<IndexManager>(), indexesDir);
+
+    using var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        cts.Cancel();
+    };
+
+    return await daemon.RunAsync(
+        ParseIntArg(args, "--port", SearchDaemon.DefaultPort),
+        warmOnStart: !args.Contains("--no-warmup"),
+        cts.Token);
+}
+
+/// <summary>
+/// Indexes directory for the search-side modes. <c>--indexes-dir</c> wins outright;
+/// otherwise <c>--data-root</c> (or LEANN_DATA_ROOT / cwd) gets the conventional
+/// <c>.leann/indexes</c> suffix, matching how the builders lay indexes down.
+/// </summary>
+static string ResolveIndexesDir(string[] args)
+{
+    var explicitDir = ParseStringArg(args, "--indexes-dir");
+    if (!string.IsNullOrWhiteSpace(explicitDir))
+        return explicitDir;
+
+    var dataRoot = ParseStringArg(args, "--data-root") ?? GetDataRoot();
+    return Path.Combine(dataRoot, ".leann", "indexes");
+}
+
 // -- Argument Helpers --
 
 static int ParseIntArg(string[] args, string flag, int defaultValue)
@@ -448,12 +567,49 @@ static string GetDataRoot() =>
     Environment.GetEnvironmentVariable("LEANN_DATA_ROOT")
     ?? Directory.GetCurrentDirectory();
 
+/// <summary>
+/// Workspace-wide ignore file: <c>--ignore-file</c> if given, else
+/// <c>&lt;data-root&gt;/.leannignore</c> when it exists. A multi-repo workspace keeps
+/// one exclude list beside its indexes rather than editing every repository.
+/// </summary>
+static string? ResolveGlobalIgnoreFile(string[] args)
+{
+    var explicitPath = ParseStringArg(args, "--ignore-file");
+    if (!string.IsNullOrWhiteSpace(explicitPath)) return explicitPath;
+
+    var candidate = Path.Combine(GetDataRoot(), ".leannignore");
+    return File.Exists(candidate) ? candidate : null;
+}
+
+/// <summary>
+/// Resolves the active embedding model. The default is the code model, which suits
+/// the overwhelmingly code-shaped corpora this tool indexes. LEANN_MODEL still
+/// overrides it, but never silently: an override that swaps in a general-purpose
+/// text model degrades code retrieval badly, and a persistent machine-level
+/// variable is otherwise invisible at the point where indexes get built.
+/// </summary>
 static EmbeddingModelDescriptor GetActiveDescriptor()
 {
     var id = Environment.GetEnvironmentVariable("LEANN_MODEL");
     if (string.IsNullOrWhiteSpace(id)) return ModelRegistry.Default;
+
     var maybe = ModelRegistry.GetById(id);
-    return maybe.GetValueOrDefault(ModelRegistry.Default);
+    if (!maybe.HasValue)
+    {
+        Console.Error.WriteLine(
+            $"WARNING: LEANN_MODEL='{id}' is not a known model id; falling back to {ModelRegistry.Default.Id}.");
+        return ModelRegistry.Default;
+    }
+
+    var descriptor = maybe.GetValueOrThrow();
+    if (descriptor.Id != ModelRegistry.Default.Id)
+    {
+        Console.Error.WriteLine(
+            $"WARNING: LEANN_MODEL='{descriptor.Id}' overrides the default code model " +
+            $"({ModelRegistry.Default.Id}). Code retrieval quality will suffer unless this is deliberate.");
+    }
+
+    return descriptor;
 }
 
 static Result<EmbeddingModelDescriptor> ResolveDescriptor(string[] args)
@@ -490,6 +646,9 @@ static void PrintUsage()
           leann-dotnet --build-passages [options]       Chunk source repos into passages
           leann-dotnet --build-indexes [options]        Compute passage embeddings
           leann-dotnet --rebuild [options]              Chain: build-passages then build-indexes
+          leann-dotnet --list                           List available indexes (no model load)
+          leann-dotnet --search [options]               One-shot semantic search
+          leann-dotnet --serve [options]                Resident search daemon over localhost HTTP
           leann-dotnet --watch [options]                Auto-sync repos and rebuild on changes
           leann-dotnet --setup [--model ID] [--force]   Download ONNX model (run once after install)
           leann-dotnet --help                           Show this help
@@ -515,6 +674,12 @@ static void PrintUsage()
           --file-types EXT [EXT...]     Whitelist of file extensions to index
                                         (e.g. .cs .csproj .sln, or comma-separated:
                                         .cs,.csproj,.sln). Overrides built-in defaults.
+          --ignore-file PATH            Workspace-wide ignore file applied to every
+                                        indexed repo (default: <data-root>/.leannignore
+                                        when present). Gitignore syntax, patterns are
+                                        repo-relative, and it wins over in-tree rules.
+                                        In-tree .gitignore AND .leannignore files are
+                                        honoured at every directory level.
           --exclude-paths PAT [PAT...]  Gitignore-style patterns to skip (e.g.
                                         "**/Tests/**" "**/*.Tests/**" "**/Mocks/**").
                                         Wildcards: ** (any depth), * (segment), ? (char).
@@ -539,6 +704,42 @@ static void PrintUsage()
           Implies --force for BOTH phases — re-chunks AND re-embeds. Use this when
           you change --chunk-size, --chunk-overlap, or any chunking option and want
           the index to reflect the new settings.
+
+        Search Mode (--search):
+          --index NAME           Index to search (required; see --list)
+          --query TEXT           Natural-language or technical query (required)
+          --top-k N              Results to return (default: 5)
+          --complexity N         Candidate depth before fusion/dedup (default: 32)
+          --dedup-threshold R    Near-duplicate cosine cutoff (default: 0.95, 0 disables)
+          --show-metadata        Include file paths in the output
+          --json                 Emit JSON instead of text
+          --max-tokens N         Max token sequence length (default: 512)
+
+          Each invocation loads the embedding model from scratch. For repeated
+          searching, run --serve once and query the daemon instead.
+
+        Serve Mode (--serve):
+          --port N               Listen port on localhost (default: 57391)
+          --no-warmup            Skip the model preload at startup
+          --max-tokens N         Max token sequence length (default: 512)
+
+          Keeps one IndexManager resident, so the embedding model and each loaded
+          index stay in memory across requests. This is the same warm-process
+          benefit the MCP server has, reachable over plain HTTP by any client.
+
+          Routes (all GET, all on localhost only):
+            /health                       Liveness, warm state, search count, pid
+            /list                         Available index names
+            /warmup                       Force a model preload
+            /search?index=&query=         Search; optional top_k, complexity,
+                                          dedup_threshold, show_metadata
+            /shutdown                     Stop the daemon
+          Add format=json to /list or /search for machine-readable output.
+
+        Index Location (--list, --search, --serve):
+          --indexes-dir PATH     Exact indexes directory (wins over --data-root)
+          --data-root PATH       Base dir; .leann/indexes is appended
+                                 (default: LEANN_DATA_ROOT or cwd)
 
         Watch Mode:
           --interval N           Check interval in seconds (default: 300)
@@ -565,7 +766,10 @@ static void PrintUsage()
 
         Environment Variables:
           LEANN_DATA_ROOT    Base directory for indexes (default: cwd)
-          LEANN_MODEL        Default model id for setup/passages/rebuild
+          LEANN_MODEL        Overrides the default embedding model. The default is
+                             the code model; overriding it with a general-purpose
+                             text model degrades code retrieval, so an override is
+                             reported on stderr whenever it is in effect.
           LEANN_MODEL_DIR    Override model dir (default: ~/.leann/models/<sanitized-model-id>)
           LEANN_GPU_DEVICE   DirectML GPU device index override (default: auto-detect best GPU)
           LEANN_FORCE_CPU    Set to "1" or "true" to disable GPU and use CPU only
