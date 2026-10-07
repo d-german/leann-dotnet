@@ -20,21 +20,80 @@ public class ChunkingTests
     // ---- RoslynChunker ----
 
     [Fact]
-    public void RoslynChunker_TwoMethodsClass_EmitsTwoChunks()
+    public void RoslynChunker_PacksSmallMembersOfOneTypeIntoOnePassage()
     {
         const string source = """
             namespace Demo;
             public class Foo
             {
+                private readonly int _seed;
                 public int Add(int a, int b) { return a + b; }
                 public int Sub(int a, int b) { return a - b; }
             }
             """;
-        var chunker = new RoslynChunker();
-        var chunks = chunker.Chunk(source, DefaultOptions);
-        Assert.True(chunks.Count >= 2, $"expected >=2 member chunks, got {chunks.Count}");
-        Assert.Contains(chunks, c => c.Contains("Add"));
-        Assert.Contains(chunks, c => c.Contains("Sub"));
+        var chunks = new RoslynChunker().Chunk(source, DefaultOptions);
+
+        var chunk = Assert.Single(chunks);
+        Assert.StartsWith("// Demo.Foo", chunk);
+        Assert.Contains("_seed", chunk);
+        Assert.Contains("Add", chunk);
+        Assert.Contains("Sub", chunk);
+    }
+
+    [Fact]
+    public void RoslynChunker_NeverMixesMembersOfDifferentTypes()
+    {
+        const string source = """
+            namespace Demo;
+            public class First { public int A() => 1; }
+            public class Second { public int B() => 2; }
+            """;
+        var chunks = new RoslynChunker().Chunk(source, DefaultOptions);
+
+        Assert.Equal(2, chunks.Count);
+        Assert.Contains(chunks, c => c.StartsWith("// Demo.First") && c.Contains("A()") && !c.Contains("B()"));
+        Assert.Contains(chunks, c => c.StartsWith("// Demo.Second") && c.Contains("B()") && !c.Contains("A()"));
+    }
+
+    [Fact]
+    public void RoslynChunker_SplitsALongMemberIntoLabelledPartsWithinTheSizeLimit()
+    {
+        var body = string.Join("\n", Enumerable.Range(0, 120).Select(i => $"        Console.WriteLine(\"line {i}\");"));
+        var source = $$"""
+            namespace Demo;
+            public class Report
+            {
+                public void Render()
+                {
+            {{body}}
+                    throw new InvalidOperationException("deep failure message");
+                }
+            }
+            """;
+        var chunks = new RoslynChunker().Chunk(source, DefaultOptions);
+
+        Assert.True(chunks.Count > 1, $"expected the method to be split, got {chunks.Count} chunk(s)");
+        Assert.All(chunks, c => Assert.True(c.Length <= DefaultOptions.CodeChunkSize, $"chunk of {c.Length} chars exceeds the limit"));
+        Assert.All(chunks, c => Assert.StartsWith("// Demo.Report.Render (part ", c));
+        Assert.Contains(chunks, c => c.Contains("deep failure message"));
+    }
+
+    [Fact]
+    public void RoslynChunker_IndexesCodeThatOnlyDotNetFrameworkCompiles()
+    {
+        const string source = """
+            #if NETFRAMEWORK
+            namespace Legacy
+            {
+                public class WebOnly { public void Handle() { } }
+            }
+            #endif
+            """;
+        var chunks = new RoslynChunker().Chunk(source, DefaultOptions);
+
+        var chunk = Assert.Single(chunks);
+        Assert.StartsWith("// Legacy.WebOnly", chunk);
+        Assert.DoesNotContain("#if", chunk);
     }
 
     [Fact]

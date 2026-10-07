@@ -6,16 +6,39 @@ namespace LeannMcp.Models;
 public sealed record ChunkingOptions
 {
     /// <summary>Chunk size in characters for text documents.</summary>
-    public int ChunkSize { get; init; } = 256;
+    /// <remarks>
+    /// Retrieval ranks candidates, so a file that fragments into many chunks gets many
+    /// votes: at 256/128 a single OpenAPI spec produced 674 of 2,794 passages in one
+    /// repository index and buried the controller that implements the endpoint, which had
+    /// 7. Larger text chunks with less overlap keep prose and configuration from
+    /// out-voting code. Since code passages were packed to <see cref="DefaultCodeChunkSize"/>
+    /// the non-code share of the HCW 25.2 code indexes rose from 8.4% to 14.2%; watch it if
+    /// this value changes.
+    /// </remarks>
+    public int ChunkSize { get; init; } = 1024;
 
     /// <summary>Overlap in characters between consecutive text chunks.</summary>
     public int ChunkOverlap { get; init; } = 128;
 
-    /// <summary>Chunk size in characters for code files.</summary>
-    public int CodeChunkSize { get; init; } = 512;
+    /// <summary>
+    /// Default <see cref="CodeChunkSize"/>: about 440 tokens of C#, inside the embedding
+    /// model's 512-token window, so a passage is embedded whole. At 512 characters with
+    /// one passage per member, half of all C# passages were a single field or property and
+    /// 29% of the code sat past the window in long methods, never embedded.
+    /// </summary>
+    public const int DefaultCodeChunkSize = 1536;
+
+    /// <summary>Default <see cref="CodeChunkOverlap"/>: 12.5%, the ratio text and PDF prose use.</summary>
+    public const int DefaultCodeChunkOverlap = 192;
+
+    /// <summary>
+    /// Chunk size in characters for code files. The C# chunker packs consecutive members of
+    /// one type up to this size and splits longer members into labelled parts.
+    /// </summary>
+    public int CodeChunkSize { get; init; } = DefaultCodeChunkSize;
 
     /// <summary>Overlap in characters between consecutive code chunks.</summary>
-    public int CodeChunkOverlap { get; init; } = 64;
+    public int CodeChunkOverlap { get; init; } = DefaultCodeChunkOverlap;
 
     /// <summary>
     /// Chunk size in characters for PDF prose. Defaults to 1600 — significantly

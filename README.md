@@ -222,8 +222,8 @@ From your MCP client, use these tools:
 | `--index-name NAME` | Index name | cwd directory name |
 | `--chunk-size N` | Text chunk size in chars | 256 |
 | `--chunk-overlap N` | Text chunk overlap | 128 |
-| `--code-chunk-size N` | Code chunk size in chars | 512 |
-| `--code-chunk-overlap N` | Code chunk overlap | 64 |
+| `--code-chunk-size N` | Code chunk size in chars | 1536 |
+| `--code-chunk-overlap N` | Code chunk overlap | 192 |
 | `--include-hidden` | Include hidden files/dirs | false |
 | `--file-types EXT [EXT...]` | Whitelist of extensions (e.g. `.cs .csproj` or `.cs,.csproj`). When set, overrides the built-in extension defaults | (built-in defaults) |
 | `--exclude-paths PAT [PAT...]` | Gitignore-style globs to skip (e.g. `"**/Tests/**" "**/Mocks/**"`). Supports `**`, `*`, `?`, `[...]`. Combined with any `.gitignore` and `.leannignore` files found in the tree | (none) |
@@ -294,8 +294,8 @@ Each entry supports optional per-repo filters and chunking overrides:
         "**/Mocks/**", "**/third-party-assemblies/**",
         "**/project.assets.json", "**/*.deps.json"
       ],
-      "codeChunkSize":    1024,   // overrides default 512
-      "codeChunkOverlap": 128,    // overrides default 64
+      "codeChunkSize":    1024,   // overrides default 1536
+      "codeChunkOverlap": 128,    // overrides default 192
       "useAst":           true    // AST-aware chunking (default true)
     },
     {
@@ -354,7 +354,7 @@ The CLI also prints which mode is active in its startup banner:
 ```
 LEANN Passage Builder
   ...
-  Code chunk: 512 (overlap 64)
+  Code chunk: 1536 (overlap 192)
   AST chunk:  enabled (Roslyn for C#, brace-balanced for C-family, indentation for Python)
   File types: ...
 ```
@@ -458,7 +458,7 @@ Chunk size controls how much context each passage contains. **This is independen
 
 - **Smaller chunks** (128-256 chars) → more precise search hits, less context per result
 - **Larger chunks** (512-1024 chars) → more context per result, but may dilute relevance
-- **Code chunks** default larger (512) because functions/methods need more context than prose
+- **Code chunks** default to 1536 characters, about 440 tokens, so each passage fits the 512-token embedding window whole. The C# chunker packs small members of one type together up to that size and splits longer members into labelled parts
 
 > **Note:** Passages longer than `--max-tokens` (default 512 tokens ≈ ~2000 chars) are truncated
 > during embedding. Making chunks larger than ~2000 chars wastes disk without improving search.

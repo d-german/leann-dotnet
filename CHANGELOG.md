@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.9.0] - 2026-10-07
+
+Rebuild C# indexes after upgrading (`--rebuild`): passages are shaped differently.
+
+### Changed
+- **C# passages are packed and split to fit the embedding window.** The Roslyn chunker
+  emitted one passage per member, so half of all C# passages were a single field or
+  property, each costing a full embedding, while long methods stayed one passage whose
+  text past the model's 512-token window was never embedded (29% of all code in a 792-file
+  OnBase project). Consecutive members of one type are now packed into a passage up to
+  `--code-chunk-size`, longer members are split at line boundaries into overlapping parts
+  labelled with the member, and members of different types are never mixed.
+- **`--code-chunk-size` now defaults to 1536 and `--code-chunk-overlap` to 192** (12.5%),
+  and the C# chunker honours them; it previously ignored both. The default lives in one
+  place (`ChunkingOptions.DefaultCodeChunkSize`) for the CLI, the record and `--watch`.
+- **Code that only .NET Framework compiles is chunked.** C# files whose conditionals test
+  target frameworks are parsed as modern .NET and as .NET Framework 4.8, so a file wrapped
+  in `#if NETFRAMEWORK` yields member passages instead of one raw blob.
+
+  Measured: an OnBase project went from 10,378 to 5,448 passages and from 40 MB to 24 MB
+  with no code left unembedded, at the same embedding time; two HCW repositories shrank by
+  53% and 57%. Retrieval held or improved on every question tested, and a blind-graded
+  troubleshooting benchmark on HCW 25.2 scored 84 against 83 with the previous indexes.
+  The non-code share of code indexes rose from 8.4% to 14.2%.
+
+### Also in this release (2.8.x, previously unrecorded)
+- Text chunks default to 1024 characters with 128 overlap, so prose and configuration no
+  longer out-vote code.
+- `--build-indexes` and `--rebuild` honour `--data-root` instead of writing under the
+  working directory.
+- The ONNX session falls back to a lower graph optimization level when a fusion fails
+  (macOS arm64), instead of leaving semantic search unavailable.
+
 ## [2.7.1] - 2026-08-18
 
 ### Added

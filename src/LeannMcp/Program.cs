@@ -229,10 +229,10 @@ static int RunBuildPassages(string[] args)
     }
     var options = new ChunkingOptions
     {
-        ChunkSize = ParseIntArg(args, "--chunk-size", 256),
+        ChunkSize = ParseIntArg(args, "--chunk-size", 1024),
         ChunkOverlap = ParseIntArg(args, "--chunk-overlap", 128),
-        CodeChunkSize = ParseIntArg(args, "--code-chunk-size", 512),
-        CodeChunkOverlap = ParseIntArg(args, "--code-chunk-overlap", 64),
+        CodeChunkSize = ParseIntArg(args, "--code-chunk-size", ChunkingOptions.DefaultCodeChunkSize),
+        CodeChunkOverlap = ParseIntArg(args, "--code-chunk-overlap", ChunkingOptions.DefaultCodeChunkOverlap),
         PdfChunkSize = ParseIntArg(args, "--pdf-chunk-size", 1600),
         PdfChunkOverlap = ParseIntArg(args, "--pdf-chunk-overlap", 200),
         PdfBoilerplateRepeatRatio = ParseDoubleArg(args, "--pdf-boilerplate-ratio", 0.30),
@@ -244,8 +244,12 @@ static int RunBuildPassages(string[] args)
         UseAst = !args.Contains("--no-ast"),
     };
 
-    var dataRoot = GetDataRoot();
-    var indexesDir = Path.Combine(dataRoot, ".leann", "indexes");
+    // Use the same resolution as the search-side modes. This path used to call
+    // GetDataRoot() directly, which reads LEANN_DATA_ROOT or the working directory and
+    // ignores --data-root entirely, so building with an explicit --data-root silently
+    // wrote the index under the caller's cwd instead. It only ever appeared to work
+    // because callers happened to cd into the data root first.
+    var indexesDir = ResolveIndexesDir(args);
     var indexDir = Path.Combine(indexesDir, indexName);
 
     var passagesPath = Path.Combine(indexDir, "documents.leann.passages.jsonl");
@@ -658,10 +662,10 @@ static void PrintUsage()
           --index-name NAME             Index name (default: current directory name)
           --model ID                    Embedding model id to record in the index manifest
                                         (default: LEANN_MODEL or jinaai/jina-embeddings-v2-base-code)
-          --chunk-size N                Text chunk size in chars (default: 256)
+          --chunk-size N                Text chunk size in chars (default: 1024)
           --chunk-overlap N             Text chunk overlap in chars (default: 128)
-          --code-chunk-size N           Code chunk size in chars (default: 512)
-          --code-chunk-overlap N        Code chunk overlap in chars (default: 64)
+          --code-chunk-size N           Code chunk size in chars (default: 1536)
+          --code-chunk-overlap N        Code chunk overlap in chars (default: 192)
           --pdf-chunk-size N            PDF prose chunk size in chars (default: 1600)
           --pdf-chunk-overlap N         PDF chunk overlap in chars (default: 200, ~12%)
           --pdf-boilerplate-ratio R     Header/footer detection threshold 0..1
@@ -754,8 +758,8 @@ static void PrintUsage()
           repos.json supports per-repo filters (all optional):
             "fileTypes":        [".cs", ".csproj", ".json"]   // whitelist of extensions
             "excludePaths":     ["**/Tests/**", "**/bin/**"]  // gitignore-style globs
-            "codeChunkSize":    1024                           // override default 512
-            "codeChunkOverlap": 128                            // override default 64
+            "codeChunkSize":    1024                           // override default 1536
+            "codeChunkOverlap": 128                            // override default 192
             "useAst":           true                           // AST chunking (default true)
 
         Setup:

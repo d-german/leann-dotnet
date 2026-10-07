@@ -210,18 +210,66 @@ public sealed class OnnxEmbeddingService : IEmbeddingService, IDisposable
         return (inputIds, attentionMask, seqLen);
     }
 
+    /// <summary>
+    /// Graph optimization levels to try, most aggressive first.
+    /// </summary>
+    /// <remarks>
+    /// The extended fusions in ORT_ENABLE_ALL are model and platform dependent, and a
+    /// failing one throws during session initialization rather than degrading. On macOS
+    /// arm64 this model fails SimplifiedLayerNormFusion with "Attempting to get index by a
+    /// name which does not exist". Falling back a level keeps the model usable instead of
+    /// making semantic search unavailable on the platform.
+    /// </remarks>
+    private static readonly GraphOptimizationLevel[] OptimizationLevels =
+    [
+        GraphOptimizationLevel.ORT_ENABLE_ALL,
+        GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+        GraphOptimizationLevel.ORT_ENABLE_BASIC,
+        GraphOptimizationLevel.ORT_DISABLE_ALL,
+    ];
+
     private InferenceSession CreateSession(string onnxPath)
     {
-        var options = new SessionOptions
+        var configured = Environment.GetEnvironmentVariable("LEANN_GRAPH_OPT");
+        var levels = configured is null
+            ? OptimizationLevels
+            : [Enum.Parse<GraphOptimizationLevel>(configured, ignoreCase: true)];
+
+        Exception? last = null;
+        for (int i = 0; i < levels.Length; i++)
         {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_WARNING,
-            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
-        };
+            try
+            {
+                var options = new SessionOptions
+                {
+                    GraphOptimizationLevel = levels[i],
+                    LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_WARNING,
+                    ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+                };
 
-        ConfigureExecutionProvider(options);
+                ConfigureExecutionProvider(options);
 
-        return new InferenceSession(onnxPath, options);
+                var session = new InferenceSession(onnxPath, options);
+                if (i > 0)
+                {
+                    _logger.LogWarning(
+                        "Graph optimization {Level} failed on this platform; using {Fallback}. " +
+                        "Set LEANN_GRAPH_OPT to pin a level and skip the retries.",
+                        levels[0], levels[i]);
+                }
+
+                return session;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                _logger.LogDebug("Session creation failed at {Level}: {Message}", levels[i], ex.Message);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not create an inference session for '{onnxPath}' at any graph optimization " +
+            $"level. Last error: {last?.Message}", last);
     }
 
     private void ConfigureExecutionProvider(SessionOptions options)

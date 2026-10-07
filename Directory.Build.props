@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>2.7.1</Version>
+    <Version>2.9.0</Version>
     <Authors>dgerman</Authors>
     <Company>dgerman</Company>
     <Product>LEANN MCP Server</Product>

@@ -234,8 +234,8 @@ public sealed class RepoWatcherService(
         {
             IncludeExtensions = extensions,
             ExcludePaths = repo.ExcludePaths is { Count: > 0 } ? repo.ExcludePaths : null,
-            CodeChunkSize = repo.CodeChunkSize ?? 512,
-            CodeChunkOverlap = repo.CodeChunkOverlap ?? 64,
+            CodeChunkSize = repo.CodeChunkSize ?? ChunkingOptions.DefaultCodeChunkSize,
+            CodeChunkOverlap = repo.CodeChunkOverlap ?? ChunkingOptions.DefaultCodeChunkOverlap,
             GlobalIgnoreFile = globalIgnoreFile,
             UseAst = repo.UseAst ?? true,
         };
