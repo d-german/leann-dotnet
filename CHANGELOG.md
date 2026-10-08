@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.10.1] - 2026-10-08
+
+### Changed
+- **`leann_search` tells agents how to narrow a search over many indexes:** search
+  `all`, choose the 2 or 3 indexes among the hits that fit the problem area, then
+  search each alone. On 30 real OnBase bugs this found the fixed file for 15 against
+  10 for a single `all` search (19 when the right index is already known).
+
 ## [2.10.0] - 2026-10-07
 
 ### Added

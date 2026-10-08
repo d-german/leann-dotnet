@@ -23,6 +23,8 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
         💡 **Pro tip**: Use this before making any changes to understand existing patterns and conventions.
 
         🌐 **Not sure which index?** Pass index_name "all" to rank every index together; each result names its index.
+
+        🧭 **Still not found?** Judge which 2 or 3 indexes among those hits best fit the problem area, then search each one alone with the same query: ranking inside one index is sharper than across all of them.
         """)]
     public async Task<string> Search(
         McpServer server,

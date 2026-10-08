@@ -288,6 +288,14 @@ wording with the code, searching the right index alone still ranks the answer hi
 when you know which index that is. An index whose name looks like a selector is
 still searched by name when it exists.
 
+So search in two steps when the first doesn't settle it: search `all`, judge which
+2 or 3 indexes among the hits best fit the problem area, then search each of those
+alone. On 30 real OnBase bugs (Jira text as the question, the files the fix changed
+as the answer), one `all` search found the fixed file for 10; an agent choosing 3
+indexes from those hits and searching each found 15; searching the right index alone,
+if you already know it, found 19. A map index of per-folder fact sheets did not
+improve the agent's choice, and voting by hit counts did worse than the agent.
+
 ### Watch Mode Flags
 
 | Flag | Description | Default |
