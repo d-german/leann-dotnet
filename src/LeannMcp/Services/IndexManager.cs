@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using CSharpFunctionalExtensions;
 using LeannMcp.Models;
 using LeannMcp.Services.Search;
@@ -72,6 +73,13 @@ public sealed class IndexManager
         return resolved;
     }
 
+    /// <summary>
+    /// Searches one index, or several when <paramref name="indexName"/> is a selector:
+    /// <c>all</c> or <c>*</c> for every index, or a comma-separated list of names and
+    /// globs (<c>Libraries__*,Workflow</c>), where an entry starting with <c>!</c>
+    /// excludes matches (<c>*,!tests__*</c>). Results from several indexes carry their
+    /// <see cref="SearchResult.IndexName"/>.
+    /// </summary>
     public Result<IReadOnlyList<SearchResult>> Search(
         string indexName,
         string query,
@@ -80,8 +88,125 @@ public sealed class IndexManager
         double dedupThreshold = NearDuplicateFilter.DefaultThreshold,
         int dedupOverFetchFactor = NearDuplicateFilter.DefaultOverFetchFactor)
     {
+        if (IsMultiIndexSelector(indexName) && !IndexExists(indexName))
+            return SearchMany(indexName, query, topK, complexity, dedupThreshold, dedupOverFetchFactor);
+
         return GetOrLoadIndex(indexName)
             .Bind(index => ExecuteSearch(index, query, topK, complexity, dedupThreshold, dedupOverFetchFactor));
+    }
+
+    // An index whose directory name happens to look like a selector ("all", "a,b") stays reachable by name.
+    private bool IndexExists(string indexName) =>
+        File.Exists(Path.Combine(CurrentIndexesDir(), indexName, "documents.leann.meta.json"));
+
+    internal static bool IsMultiIndexSelector(string selector) =>
+        selector.Equals("all", StringComparison.OrdinalIgnoreCase) || selector.IndexOfAny(['*', '?', ',', '!']) >= 0;
+
+    /// <summary>The indexes in <paramref name="available"/> that <paramref name="selector"/> picks, in order.</summary>
+    internal static IReadOnlyList<string> ResolveSelector(string selector, IReadOnlyList<string> available)
+    {
+        var parts = selector.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var includes = parts.Where(p => !p.StartsWith('!'))
+            .Select(p => p.Equals("all", StringComparison.OrdinalIgnoreCase) ? "*" : p)
+            .DefaultIfEmpty("*")
+            .Select(GlobToRegex)
+            .ToList();
+        var excludes = parts.Where(p => p.StartsWith('!')).Select(p => GlobToRegex(p[1..])).ToList();
+        return available
+            .Where(name => includes.Any(r => r.IsMatch(name)) && !excludes.Any(r => r.IsMatch(name)))
+            .ToList();
+    }
+
+    private static Regex GlobToRegex(string glob) =>
+        new("^" + Regex.Escape(glob).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// One ranking across several indexes, the same as searching one index built from
+    /// all of them. Each index's fused scores are rank positions within that index and
+    /// cannot be compared, so the raw signals are merged first and fused once. Dense
+    /// scores are cosine similarities from one embedding model and compare directly.
+    /// BM25 scores every index with the combined term statistics of all of them, so
+    /// they compare too, and the identifier pin is the best scoring one of any index.
+    /// </summary>
+    private Result<IReadOnlyList<SearchResult>> SearchMany(
+        string selector, string query, int topK, int complexity, double dedupThreshold, int dedupOverFetchFactor)
+    {
+        var names = ResolveSelector(selector, DiscoverIndexNames());
+        if (names.Count == 0)
+            return Result.Failure<IReadOnlyList<SearchResult>>($"No index matches '{selector}'. Run --list to see available indexes.");
+
+        var indexes = new List<(string Name, LeannIndex Index)>(names.Count);
+        foreach (var name in names)
+        {
+            var loaded = GetOrLoadIndex(name);
+            if (loaded.IsSuccess) indexes.Add((name, loaded.Value));
+            else _logger.LogWarning("Skipping index '{Name}' in multi-index search: {Error}", name, loaded.Error);
+        }
+        if (indexes.Count == 0)
+            return Result.Failure<IReadOnlyList<SearchResult>>($"None of the {names.Count} index(es) matching '{selector}' could be loaded.");
+
+        var models = indexes.Select(i => i.Index.Model.Id).Distinct().ToList();
+        if (models.Count > 1)
+            return Result.Failure<IReadOnlyList<SearchResult>>(
+                $"Indexes matching '{selector}' use different embedding models ({string.Join(", ", models)}); " +
+                "their scores are not comparable. Narrow the selector to one model.");
+
+        var embedding = indexes[0].Index.EmbeddingService.ComputeEmbedding(query);
+        if (embedding.IsFailure)
+            return Result.Failure<IReadOnlyList<SearchResult>>(embedding.Error);
+
+        var fetchK = ComputeFetchK(topK, complexity, dedupThreshold, dedupOverFetchFactor);
+        var corpus = BM25Index.CombinedStats(query, indexes.Select(i => i.Index.BM25).ToList());
+        var byName = indexes.ToDictionary(i => i.Name, i => i.Index);
+        var dense = new List<(string Id, float Score)>();
+        var lexical = new List<(string Id, float Score)>();
+        var pins = new List<(string Id, float Score)>();
+        foreach (var (name, index) in indexes)
+        {
+            var denseHits = index.VectorIndex.Search(embedding.Value, fetchK);
+            if (denseHits.IsFailure)
+                return Result.Failure<IReadOnlyList<SearchResult>>($"{name}: {denseHits.Error}");
+            dense.AddRange(denseHits.Value.Select(h => (CompositeId(name, h.Id), h.Score)));
+            lexical.AddRange(index.BM25.Search(query, fetchK, corpus).Select(h => (CompositeId(name, h.Id), h.Score)));
+            index.BM25.FindBestIdentifierMatch(query, corpus)
+                .Execute(pin => pins.Add((CompositeId(name, pin.Id), pin.Score)));
+        }
+
+        var globalDense = dense.OrderByDescending(h => h.Score).Take(fetchK).ToArray();
+        var globalLexical = lexical.OrderByDescending(h => h.Score).Take(fetchK).ToArray();
+        var fused = pins.Count > 0
+            ? PinAndFuse(pins.MaxBy(p => p.Score).Id, globalDense, globalLexical, fetchK)
+            : ReciprocalRankFusion.Fuse(globalDense, globalLexical, fetchK, lexicalWeight: 2.0f);
+
+        float[]? EmbeddingOf(string compositeId)
+        {
+            var (name, id) = SplitCompositeId(compositeId);
+            return byName[name].VectorIndex.TryGetEmbedding(id);
+        }
+
+        var filtered = NearDuplicateFilter.Filter(fused, EmbeddingOf, topK, dedupThreshold);
+        var results = new List<SearchResult>(filtered.Count);
+        foreach (var (compositeId, score) in filtered)
+        {
+            var (name, id) = SplitCompositeId(compositeId);
+            var passage = byName[name].PassageStore.GetPassage(id);
+            if (passage.IsSuccess)
+                results.Add(new SearchResult(passage.Value.Id, score, passage.Value.Text, passage.Value.Metadata, name));
+        }
+        return Result.Success<IReadOnlyList<SearchResult>>(results);
+    }
+
+    // Index names are directory names and passage ids are file-safe, so a control
+    // character cannot occur in either and keeps the pair unambiguous.
+    private const char CompositeSeparator = '\u001f';
+
+    private static string CompositeId(string indexName, string passageId) => indexName + CompositeSeparator + passageId;
+
+    private static (string IndexName, string PassageId) SplitCompositeId(string compositeId)
+    {
+        var at = compositeId.IndexOf(CompositeSeparator);
+        return (compositeId[..at], compositeId[(at + 1)..]);
     }
 
     public Result<IReadOnlyList<string>> ListIndexes()

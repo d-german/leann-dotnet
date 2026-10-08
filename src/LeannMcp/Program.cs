@@ -710,7 +710,9 @@ static void PrintUsage()
           the index to reflect the new settings.
 
         Search Mode (--search):
-          --index NAME           Index to search (required; see --list)
+          --index NAME           Index to search (required; see --list), or a selector
+                                 ranking several together: all, a comma list of names
+                                 and globs (Workflow__*,Libraries__*), !glob excludes
           --query TEXT           Natural-language or technical query (required)
           --top-k N              Results to return (default: 5)
           --complexity N         Candidate depth before fusion/dedup (default: 32)
@@ -735,7 +737,8 @@ static void PrintUsage()
             /health                       Liveness, warm state, search count, pid
             /list                         Available index names
             /warmup                       Force a model preload
-            /search?index=&query=         Search; optional top_k, complexity,
+            /search?index=&query=         Search (index takes a selector too);
+                                          optional top_k, complexity,
                                           dedup_threshold, show_metadata
             /shutdown                     Stop the daemon
           Add format=json to /list or /search for machine-readable output.

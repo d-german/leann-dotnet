@@ -35,6 +35,7 @@ public sealed class BM25Index
     private readonly IReadOnlyDictionary<string, float> _idf;
     private readonly IReadOnlyDictionary<string, int> _docLengths;
     private readonly float _avgDocLength;
+    private readonly long _totalLength;
 
     public int Count { get; }
 
@@ -55,6 +56,7 @@ public sealed class BM25Index
         }
 
         Count = docCount;
+        _totalLength = totalLength;
         _avgDocLength = docCount == 0 ? 0f : (float)totalLength / docCount;
         _docLengths = docLengths;
         _postings = postings.ToDictionary(
@@ -92,11 +94,43 @@ public sealed class BM25Index
     {
         var idf = new Dictionary<string, float>(df.Count, StringComparer.Ordinal);
         foreach (var (term, frequency) in df)
-            idf[term] = (float)Math.Log((docCount - frequency + 0.5) / (frequency + 0.5) + 1.0);
+            idf[term] = Idf(docCount, frequency);
         return idf;
     }
 
-    public IReadOnlyList<(string Id, float Score)> Search(string query, int topK)
+    private static float Idf(int docCount, int documentFrequency) =>
+        (float)Math.Log((docCount - documentFrequency + 0.5) / (documentFrequency + 0.5) + 1.0);
+
+    /// <summary>
+    /// The statistics BM25 would see if <paramref name="indexes"/> were one index,
+    /// for the terms of <paramref name="query"/>. Scoring each index with them
+    /// (<see cref="Search(string, int, CorpusStats?)"/>) gives scores that compare
+    /// across indexes exactly as within one.
+    /// </summary>
+    public static CorpusStats CombinedStats(string query, IReadOnlyCollection<BM25Index> indexes)
+    {
+        var docCount = indexes.Sum(i => i.Count);
+        var totalLength = indexes.Sum(i => i._totalLength);
+        var documentFrequencies = CamelCaseTokenizer.TokenizeWithKinds(query)
+            .Select(qt => qt.Term)
+            .Distinct(StringComparer.Ordinal)
+            .ToDictionary(
+                term => term,
+                term => indexes.Sum(i => i._postings.TryGetValue(term, out var posting) ? posting.Count : 0),
+                StringComparer.Ordinal);
+        return new CorpusStats(docCount, docCount == 0 ? 0f : (float)totalLength / docCount, documentFrequencies);
+    }
+
+    /// <summary>Document count, mean length and per-term document frequencies of a corpus.</summary>
+    public sealed record CorpusStats(int DocCount, float AvgDocLength, IReadOnlyDictionary<string, int> DocumentFrequencies);
+
+    public IReadOnlyList<(string Id, float Score)> Search(string query, int topK) => Search(query, topK, corpus: null);
+
+    /// <summary>
+    /// Ranks this index's passages, scoring with <paramref name="corpus"/>'s statistics
+    /// instead of this index's own when given.
+    /// </summary>
+    public IReadOnlyList<(string Id, float Score)> Search(string query, int topK, CorpusStats? corpus)
     {
         if (Count == 0 || string.IsNullOrWhiteSpace(query) || topK <= 0)
             return Array.Empty<(string, float)>();
@@ -107,7 +141,7 @@ public sealed class BM25Index
         {
             if (!seen.Add(qt.Term)) continue;
             var boost = qt.IsWholeIdentifier ? IdentifierBoost : 1.0f;
-            AccumulateTermScores(qt.Term, scores, boost);
+            AccumulateTermScores(qt.Term, scores, boost, corpus);
         }
 
         return scores
@@ -118,15 +152,18 @@ public sealed class BM25Index
             .ToList();
     }
 
-    private void AccumulateTermScores(string term, Dictionary<string, float> scores, float boost)
+    private void AccumulateTermScores(string term, Dictionary<string, float> scores, float boost, CorpusStats? corpus)
     {
         if (!_postings.TryGetValue(term, out var posting)) return;
         if (!_idf.TryGetValue(term, out var termIdf)) return;
+        if (corpus is not null)
+            termIdf = Idf(corpus.DocCount, corpus.DocumentFrequencies.GetValueOrDefault(term, posting.Count));
+        var avgDocLength = corpus?.AvgDocLength ?? _avgDocLength;
 
         var idfBoosted = termIdf * boost;
         foreach (var (docId, tf) in posting)
         {
-            var lenNorm = 1f - B + B * (_docLengths[docId] / _avgDocLength);
+            var lenNorm = 1f - B + B * (_docLengths[docId] / avgDocLength);
             var contribution = idfBoosted * (tf * (K1 + 1)) / (tf + K1 * lenNorm);
             scores[docId] = scores.GetValueOrDefault(docId) + contribution;
         }
@@ -159,9 +196,17 @@ public sealed class BM25Index
     /// promote BM25's argmax over the candidate set to rank #1, bypassing
     /// the dense/RRF noise that erases identifier ranking on Contriever.
     /// </summary>
-    public Maybe<string> FindBestIdentifierMatch(string query)
+    public Maybe<string> FindBestIdentifierMatch(string query) =>
+        FindBestIdentifierMatch(query, corpus: null).Map(hit => hit.Id);
+
+    /// <summary>
+    /// <see cref="FindBestIdentifierMatch(string)"/> judged against <paramref name="corpus"/>:
+    /// the document-frequency limit and the score both use its statistics, so the
+    /// best match across several indexes is the one with the highest score.
+    /// </summary>
+    public Maybe<(string Id, float Score)> FindBestIdentifierMatch(string query, CorpusStats? corpus)
     {
-        if (string.IsNullOrWhiteSpace(query)) return Maybe<string>.None;
+        if (string.IsNullOrWhiteSpace(query)) return Maybe<(string, float)>.None;
 
         var candidates = new HashSet<string>(StringComparer.Ordinal);
         var seenTerms = new HashSet<string>(StringComparer.Ordinal);
@@ -170,17 +215,14 @@ public sealed class BM25Index
             if (!qt.IsWholeIdentifier) continue;
             if (!seenTerms.Add(qt.Term)) continue;
             if (!_postings.TryGetValue(qt.Term, out var posting)) continue;
-            if (posting.Count > MaxIdentifierDf) continue;
+            var documentFrequency = corpus?.DocumentFrequencies.GetValueOrDefault(qt.Term, posting.Count) ?? posting.Count;
+            if (documentFrequency > MaxIdentifierDf) continue;
             foreach (var docId in posting.Keys) candidates.Add(docId);
         }
 
-        if (candidates.Count == 0) return Maybe<string>.None;
+        if (candidates.Count == 0) return Maybe<(string, float)>.None;
 
-        var best = Search(query, topK: Count)
-            .Where(h => candidates.Contains(h.Id))
-            .Select(h => h.Id)
-            .FirstOrDefault();
-
-        return best is null ? Maybe<string>.None : Maybe<string>.From(best);
+        var best = Search(query, topK: Count, corpus).Where(h => candidates.Contains(h.Id)).ToList();
+        return best.Count == 0 ? Maybe<(string, float)>.None : Maybe<(string, float)>.From(best[0]);
     }
 }

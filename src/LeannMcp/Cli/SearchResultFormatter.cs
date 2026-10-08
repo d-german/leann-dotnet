@@ -34,6 +34,7 @@ internal static class SearchResultFormatter
         {
             var r = results[i];
             sb.AppendLine($"{i + 1}. Score: {r.Score:F3}");
+            if (r.IndexName is not null) sb.AppendLine($"   Index: {r.IndexName}");
 
             if (showMetadata && r.Metadata is not null)
             {
@@ -75,6 +76,7 @@ internal static class SearchResultFormatter
                 rank = i + 1,
                 score = r.Score,
                 id = r.Id,
+                index = r.IndexName,
                 file = TryGetMetadata(r, "file_path"),
                 text = SnippetTruncator.Truncate(r.Text),
                 metadata = showMetadata ? r.Metadata : null,

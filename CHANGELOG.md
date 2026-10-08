@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.10.0] - 2026-10-07
+
+### Added
+- **Search several indexes in one call.** The index name taken by `--search --index`,
+  the `--serve` daemon's `index` and the MCP tool's `index_name` also accepts a
+  selector: `all` or `*` for every index, comma-separated names and globs, and `!`
+  entries that exclude (`*,!tests__*`). Dense and BM25 candidates from every matching
+  index are merged and fused once, with BM25 scored on the indexes' combined term
+  statistics, so the ranking is identical to one index built from all of them. Each
+  result reports its index (`Index:` in text, `index` in JSON). A repository split
+  into many indexes no longer needs the caller to guess which one holds the answer.
+
+  Measured on OnBase.NET split into 67 indexes: five troubleshooting questions, each
+  asked two ways, all found the answer in the top 3 of one call (two of them had
+  taken 7 to 9 searches while guessing indexes). On 60 exact exception messages the
+  answer was in the top 10 for 55, against 57 when searching the right index alone;
+  on 30 paraphrased questions that share no wording with the code, 4 against 13,
+  with keyword search at 1.
+
 ## [2.9.0] - 2026-10-07
 
 Rebuild C# indexes after upgrading (`--rebuild`): passages are shaped differently.

@@ -245,7 +245,7 @@ From your MCP client, use these tools:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--index NAME` | Index to search (`--search`) | required |
+| `--index NAME` | Index to search (`--search`), or a selector over several; see below | required |
 | `--query TEXT` | Natural-language or technical query (`--search`) | required |
 | `--top-k N` | Results to return | 5 |
 | `--complexity N` | Candidate depth before fusion and dedup | 32 |
@@ -263,6 +263,30 @@ Optional search parameters: `top_k`, `complexity`, `dedup_threshold`, `show_meta
 
 Each `--search` invocation loads the embedding model from scratch; `--serve` pays
 that once and keeps every loaded index resident.
+
+#### Searching several indexes at once
+
+Wherever an index name is taken (`--index`, the daemon's `index`, the MCP tool's
+`index_name`), a selector searches several indexes and ranks them together:
+
+| Selector | Searches |
+|----------|----------|
+| `all` or `*` | every index |
+| `Workflow__*,Libraries__Hyland.Core*` | indexes matching any name or glob (`*`, `?`) |
+| `*,!tests__*` | every index except those matching a `!` entry |
+
+Each result names its index (`Index:` in text, `index` in JSON); file paths stay
+relative to that index's source. Use this when a repository is split into many
+indexes and the question doesn't say which one holds the answer. The indexes must
+share one embedding model.
+
+The ranking is the one a single index built from all the selected indexes would
+give: dense scores are cosine similarities from the shared model, and BM25 scores
+every index with the combined term statistics, so both compare across indexes. More
+indexes means more competition, though: on paraphrased questions that share no
+wording with the code, searching the right index alone still ranks the answer higher
+when you know which index that is. An index whose name looks like a selector is
+still searched by name when it exists.
 
 ### Watch Mode Flags
 

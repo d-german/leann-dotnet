@@ -21,10 +21,12 @@ public sealed class LeannTools(IndexManager indexManager, WorkspaceResolver reso
         - "Configuration management" → finds config files and usage
 
         💡 **Pro tip**: Use this before making any changes to understand existing patterns and conventions.
+
+        🌐 **Not sure which index?** Pass index_name "all" to rank every index together; each result names its index.
         """)]
     public async Task<string> Search(
         McpServer server,
-        [Description("Name of the LEANN index to search. Use 'leann_list' first to see available indexes.")]
+        [Description("Name of the LEANN index to search (see 'leann_list'). Or a selector over several indexes, ranked together: 'all' or '*' for every index; comma-separated names and globs such as 'Workflow__*,Libraries__Hyland.Core*'; a leading '!' excludes, as in '*,!tests__*'.")]
         string index_name,
         [Description("Search query - can be natural language (e.g., 'how to handle errors') or technical terms (e.g., 'async function definition')")]
         string query,
